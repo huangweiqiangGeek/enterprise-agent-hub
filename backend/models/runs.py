@@ -18,6 +18,7 @@ class Conversation(IdentityRow, Base):
     agent_id: Mapped[UUID]
     task_type: Mapped[str] = mapped_column(Text)
     title: Mapped[str] = mapped_column(Text)
+    revision: Mapped[int] = mapped_column(BigInteger, default=1)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 

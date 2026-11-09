@@ -9,6 +9,7 @@ type Options = {
   key?: string
   timeoutMs?: number
   signal?: AbortSignal
+  headers?: Record<string, string>
 }
 
 export default defineNuxtPlugin(() => {
@@ -97,6 +98,47 @@ export default defineNuxtPlugin(() => {
     await transport<unknown>(path, options)
   }
 
+  /** Keep downloads/streams inside the same identity cancellation boundary. */
+  async function read<T>(
+    path: string,
+    options: Options,
+    consume: (response: Response) => Promise<T>,
+  ): Promise<T> {
+    const controller = new AbortController()
+    const started = generation
+    controllers.add(controller)
+    const abort = () => controller.abort()
+    options.signal?.addEventListener('abort', abort)
+    if (options.signal?.aborted) controller.abort()
+    try {
+      const response = await fetch(`/api/v1${path}`, {
+        credentials: 'same-origin',
+        cache: 'no-store',
+        signal: controller.signal,
+        headers: {
+          ...options.headers,
+          'X-Organization-Id': options.organizationId || '',
+        },
+      })
+      if (!response.ok)
+        throw apiError({
+          statusCode: response.status,
+          data: await response.json(),
+        })
+      const result = await consume(response)
+      if (started !== generation || controller.signal.aborted)
+        throw new ApiError('请求已取消。', 0, 'ABORTED')
+      return result
+    } catch (error) {
+      if (controller.signal.aborted || started !== generation)
+        throw new ApiError('请求已取消。', 0, 'ABORTED')
+      throw apiError(error)
+    } finally {
+      options.signal?.removeEventListener('abort', abort)
+      controllers.delete(controller)
+    }
+  }
+
   /** Send one file with progress; callers reconcile acceptance by the same idempotency key. */
   async function upload(
     path: string,
@@ -165,5 +207,5 @@ export default defineNuxtPlugin(() => {
     controllers.clear()
   }
 
-  return { provide: { api: { request, empty, upload, cancelAll } } }
+  return { provide: { api: { request, empty, upload, read, cancelAll } } }
 })

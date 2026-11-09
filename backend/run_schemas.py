@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import Field, StringConstraints, field_validator
 
-from backend.schemas import DTO
+from backend.schemas import DTO, Name, Revision
 
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
 RunStatus = Literal["queued", "running", "succeeded", "failed", "cancelled", "timed_out"]
@@ -21,6 +21,19 @@ class ConversationCreate(DTO):
 class ConversationView(ConversationCreate):
     id: UUID
     updated_at: datetime
+    revision: int = 1
+
+
+class ConversationSummary(ConversationView):
+    agent_name: str
+    active_run_id: UUID | None = None
+    last_run_id: UUID | None = None
+    last_run_status: RunStatus | None = None
+
+
+class ConversationRename(DTO):
+    title: Name
+    expected_revision: Revision
 
 
 class QAInput(DTO):
@@ -108,3 +121,49 @@ class StepSummary(DTO):
     source_ids: list[str]
     usage: list[dict[str, Any]]
     error_code: str | None
+
+
+class MessageView(DTO):
+    id: UUID
+    run_id: UUID
+    role: Literal["user", "assistant"]
+    content: str
+    is_partial: bool
+    result_visibility: Literal["visible", "partially_unavailable", "withheld"]
+    result: QAResult | None
+    citations: list[dict[str, Any]]
+    created_at: datetime
+
+
+class SourceDetail(DTO):
+    id: UUID
+    kind: Literal["document"] = "document"
+    availability: Literal["available", "deleted", "unavailable"]
+    title: str
+    excerpt: str | None
+    locator: dict[str, Any]
+    document_id: UUID
+    attempt_id: UUID
+    chunk_id: UUID
+    observed_at: datetime
+    content_hash: str
+
+
+class TaskDocument(DTO):
+    id: UUID
+    knowledge_base_id: UUID
+    title: str
+    attempt_id: UUID
+
+
+class TaskKnowledge(DTO):
+    id: UUID
+    name: str
+
+
+class TaskOptions(DTO):
+    agent_id: UUID
+    version_number: int
+    knowledge_bases: list[TaskKnowledge]
+    documents: list[TaskDocument]
+    limits: dict[str, int]

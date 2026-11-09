@@ -99,7 +99,7 @@ class Actor:
         if "eah_csrf" in self.cookies:
             self.csrf = self.cookies["eah_csrf"]
         assert response.headers["cache-control"] == "no-store"
-        if response.content:
+        if response.content and "application/json" in response.headers.get("content-type", ""):
             assert response.json()["requestId"] == response.headers["x-request-id"]
         return response
 

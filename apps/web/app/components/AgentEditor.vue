@@ -168,7 +168,7 @@ async function changeStatus() {
   if (
     saved.value.enabled &&
     !window.confirm(
-      '停用后不能发起新任务；在途任务将在下个授权检查点停止，历史记录保留。当前任务执行功能尚未开放。确认停用？',
+      '停用后不能发起新任务；在途任务将在下个授权检查点停止，历史记录保留。确认停用？',
     )
   )
     return
@@ -426,10 +426,18 @@ onBeforeUnmount(() => {
           确认复制
         </button>
       </form>
-      <button class="secondary" disabled>试运行（尚未开放）</button>
+      <NuxtLink
+        v-if="
+          saved.enabled && saved.taskType === 'qa' && !saved.readiness.length
+        "
+        :to="`/o/${organizationId}/chat?agent=${saved.id}`"
+        >使用已保存配置开始问答</NuxtLink
+      >
+      <button v-else class="secondary" disabled>试运行（尚未就绪）</button>
       <p class="small muted">
         试运行将使用已保存的第
-        {{ saved.versionNumber }} 版并计入用量。会话和运行功能开放后可使用。
+        {{ saved.versionNumber }}
+        版并计入用量。文档问答已开放，其他类型按后续阶段开放。
       </p>
     </section>
   </div>

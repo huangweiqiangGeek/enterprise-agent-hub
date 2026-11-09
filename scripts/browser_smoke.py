@@ -62,6 +62,7 @@ def main() -> int:
     parser.add_argument(
         "--storage", action="store_true", help="Use a disposable bucket on configured S3"
     )
+    parser.add_argument("--spec", help="Run one Playwright spec in the isolated environment")
     args = parser.parse_args()
     load_dotenv(ROOT / ".env")
     admin = os.getenv("EAH_TEST_ADMIN_URL")
@@ -150,11 +151,15 @@ def main() -> int:
                         str(node),
                         str(ROOT / "apps/web/node_modules/@playwright/test/cli.js"),
                         "test",
+                        *([args.spec] if args.spec else []),
                     ],
                     cwd=ROOT / "apps/web",
                     env=env,
                     check=False,
                 )
+                if result.returncode:
+                    log.flush()
+                    print(log_path.read_text(encoding="utf-8", errors="replace")[-6000:])
                 return result.returncode
             finally:
                 for process in reversed(processes):

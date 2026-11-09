@@ -111,7 +111,7 @@ test('Agent drafts, templates, leave guard, conflict reload and independent clon
     page.getByRole('heading', { name: '已保存的第 1 版 · 已停用' }),
   ).toBeVisible()
   await expect(
-    page.getByRole('button', { name: '试运行（尚未开放）' }),
+    page.getByRole('button', { name: '试运行（尚未就绪）' }),
   ).toBeDisabled()
   await page.setViewportSize({ width: 390, height: 844 })
   expect(
@@ -230,8 +230,8 @@ test('Agent enabled configuration, member projection and disabled deep link', as
     ).toBeVisible()
     await expect(member.getByLabel('任务提示词')).toHaveCount(0)
     await expect(
-      member.getByRole('button', { name: '开始任务（尚未开放）' }),
-    ).toBeDisabled()
+      member.getByRole('link', { name: '开始文档问答' }),
+    ).toBeVisible()
     const html = await (await member.request.get(agentUrl)).text()
     expect(html).not.toContain('根据用户问题检索已授权资料')
     expect(html).not.toContain('fixture-only')

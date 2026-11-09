@@ -174,6 +174,18 @@ def test_real_qa_linux_duplicate_delivery(database_url: str) -> None:
             assert result["status"] == "succeeded", result
             assert result["citations"] and "评审" in result["result"]["answer"]
             assert "林舟" in result["result"]["answer"]
+            # D09 projections must reference the exact evidence from this real-provider run.
+            for citation in result["citations"]:
+                detail = owner.request("GET", f"/runs/{run_id}/sources/{citation['sourceId']}")
+                assert detail.status_code == 200
+                source = detail.json()["data"]
+                assert source["attemptId"] == citation["attemptId"]
+                assert source["chunkId"] == citation["chunkId"] and source["excerpt"]
+            exported = owner.request("GET", f"/runs/{run_id}/export")
+            assert exported.status_code == 200 and "## 覆盖与限制" in exported.text
+            assert all(c["attemptId"] in exported.text for c in result["citations"])
+            events = owner.request("GET", f"/runs/{run_id}/events")
+            assert events.status_code == 200 and "event: run.completed" in events.text
             with connection(database_url) as db:
                 counts = db.execute(
                     "SELECT operation_kind,status,token_source,input_tokens,"

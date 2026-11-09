@@ -2,6 +2,7 @@
 
 import asyncio
 import importlib.util
+import json
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
@@ -11,14 +12,44 @@ import httpx
 import uvicorn
 from fastapi import FastAPI
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.api.app import create_app
 from backend.config import Settings
 from backend.models.knowledge import Document
+from backend.models.runs import Run
 from backend.rag.embeddings import Embeddings
 from backend.runtime import run_async
 from backend.services.ingestion import Ingestion
 from backend.services.model_probe import ModelProbe
+from backend.services.qa import QA
+from backend.services.run_state import RunState
+
+
+class BrowserQAStream(httpx.AsyncByteStream):
+    def __init__(self, sources: list[tuple[str, str]]):
+        self.sources = sources
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        for text, source_id in self.sources:
+            block = (
+                json.dumps(
+                    {"type": "claim", "text": text, "kind": "fact", "sourceIds": [source_id]},
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+            yield (
+                "data: "
+                + json.dumps({"choices": [{"index": 0, "delta": {"content": block}}]})
+                + "\n\n"
+            ).encode()
+            await asyncio.sleep(4)
+        yield b'data: {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}\n\n'
+        yield (
+            b'data: {"choices": [], "usage": {"prompt_tokens": 100, '
+            b'"completion_tokens": 50}}\n\ndata: [DONE]\n\n'
+        )
 
 
 def main() -> None:
@@ -31,7 +62,40 @@ def main() -> None:
     settings = Settings()
     app = create_app(settings)
     fixture = module.ProviderFixture()
-    app.state.model_probe = ModelProbe(settings, httpx.MockTransport(fixture.handle))
+
+    async def handle(request: httpx.Request) -> httpx.Response:
+        value = json.loads(request.content)
+        if (
+            os.getenv("EAH_BROWSER_QA") == "1"
+            and request.url.path.endswith("chat/completions")
+            and value.get("stream")
+            and "tools" not in value
+        ):
+            evidence = json.loads(
+                next(
+                    m["content"]
+                    for m in value["messages"]
+                    if m["role"] == "user" and '"evidence"' in m["content"]
+                )
+            )["evidence"]
+            return httpx.Response(
+                200,
+                stream=BrowserQAStream(
+                    [
+                        (text, next(e["sourceId"] for e in evidence if keyword in e["text"]))
+                        for text, keyword in [
+                            ("发布必须经过评审。", "评审"),
+                            ("发布应保留回滚记录。", "回滚"),
+                        ]
+                    ]
+                ),
+                headers={"content-type": "text/event-stream"},
+            )
+        response = await fixture.handle(request)
+        assert isinstance(response, httpx.Response)
+        return response
+
+    app.state.model_probe = ModelProbe(settings, httpx.MockTransport(handle))
     if os.getenv("EAH_BROWSER_INGESTION") == "1":
         original_lifespan = app.router.lifespan_context
 
@@ -55,16 +119,39 @@ def main() -> None:
                     await service.run(doc.organization_id, doc.id, doc.current_attempt_id)
                 await asyncio.sleep(0.2)
 
+        async def consume_runs() -> None:
+            service_sessions = async_sessionmaker(app.state.engine, expire_on_commit=False)
+            while True:
+                async with service_sessions() as db:
+                    rows = list(
+                        await db.scalars(select(Run).where(Run.status == "queued").limit(4))
+                    )
+                for row in rows:
+                    await QA(
+                        RunState(app.state.engine, settings, row.organization_id, row.id),
+                        app.state.model_probe,
+                    ).run()
+                await asyncio.sleep(0.2)
+
         @asynccontextmanager
         async def lifespan(instance: FastAPI) -> AsyncIterator[None]:
             async with original_lifespan(instance):
                 consumer = asyncio.create_task(consume())
+                runner = (
+                    asyncio.create_task(consume_runs())
+                    if os.getenv("EAH_BROWSER_QA") == "1"
+                    else None
+                )
                 try:
                     yield
                 finally:
                     consumer.cancel()
                     with suppress(asyncio.CancelledError):
                         await consumer
+                    if runner:
+                        runner.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await runner
 
         app.router.lifespan_context = lifespan
     run_async(

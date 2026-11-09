@@ -102,7 +102,7 @@ D08 的 `0007_runs` 新增下列七张运行表，连同 D07 后共二十七张 
 
 | 实体 | 专属字段与类型 | 约束/索引 | 说明 |
 | --- | --- | --- | --- |
-| conversations | organization_id、owner_user_id、agent_id、task_type、title、updated_at | 组织/owner/更新时间/ID 索引；agent/task_type 创建后固定 | 成员私有列表；管理员从 run 审计，不代发 |
+| conversations | organization_id、owner_user_id、agent_id、task_type、title、updated_at、revision | 0008增加revision默认1与组织/owner/更新时间/ID索引；agent/task_type创建后固定；重命名按revision防覆盖 | 成员私有列表；管理员从 run 审计，不代发 |
 | messages | organization_id、conversation_id、run_id、role(user,assistant)、content、result_json nullable jsonb、is_partial bool、created_at | `(run_id,role)` 唯一；会话/创建时间/ID 索引 | 用户输入与一次助理结果；最终结构化结果/coverage 保存在 result_json；tool 不伪装成用户消息 |
 | runs | organization_id、conversation_id、initiator_id、agent_version_id、status、cancel_requested、input_snapshot jsonb、config_snapshot jsonb、budget_snapshot jsonb、started_at、deadline_at、finished_at、last_seq bigint、lease_owner、lease_generation、lease_until、retry_of_run_id nullable、error_code、graph_version | 同 conversation 的非终态 run 部分唯一索引；org/status/time；过期 lease 索引；retry 复合组织 FK | 保留已经消耗的预算；当前授权另查，不信快照里的旧角色 |
 | run_steps | organization_id、run_id、sequence bigint、logical_step_key、attempt_no、kind(model,tool,validation)、tool_key nullable、input_digest、input_summary jsonb、output_summary jsonb、status、error_code、started_at、finished_at、lease_generation | `(run_id,logical_step_key,attempt_no)` 唯一；`(run_id,sequence)` 唯一并用于轨迹排序，序号在 run 锁内分配 | 内部 step 状态不能冒充 run 业务状态；恢复按 logical_step_key 去重 |

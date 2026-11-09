@@ -183,7 +183,17 @@ D04 实现细节：AP26 每次只收一个 `file` part，最多 180 秒，扩展
 
 详情补充接口：`GET /knowledge-bases/{id}` 返回 KnowledgeBase；`GET /knowledge-bases/{id}/upload-policy` 返回 `{maxBytes,extensions,embeddingReady,maxDocuments}`，均要求当前组织成员身份。AP61 接受 `operation=document.upload`（resourceId 为必填知识库 ID）、`conversation.create`（不传 resourceId）和 `run.create`（resourceId 为本人会话 ID）；按操作返回 document/conversation/run 接受快照，不返回跨发起者记录。拒绝码包括 FILE_EMPTY、FILE_TOO_LARGE、FILE_TYPE_UNSUPPORTED、UPLOAD_INCOMPLETE、IDEMPOTENCY_CONFLICT、EMBEDDING_NOT_CONFIGURED、DOCUMENT_LIMIT_REACHED；错误仍使用通用 JSON 外壳。
 
-D08 已实现 AP49/AP53/AP54/AP58 和 AP61 运行接受核对。AP53 仅支持 qa，knowledgeBaseIds 最多10个、documentIds最多100个且不重复；agentId 必须等于会话固定 Agent。AP58 cursor 为已返回 sequence，默认20、最大100；步骤含 run 专属用量与提供方请求 ID。AP54 删除文档时保留历史答案并标 partially_unavailable，来源元信息不返回 excerpt。eventsUrl 为 D09 预留，事件读取接口尚未实现。D08 的 message.delta 额外含 `reset`：结构修复开始时 true 表示替换草稿，禁止把两次候选拼接；最终成功仅从 AP54 读取。错误补充 MODEL_REQUEST_INVALID、MODEL_STREAM_INTERRUPTED、CITATION_INVALID、RESULT_INVALID、REQUIRED_SOURCE_UNAVAILABLE、PERMISSION_REVOKED；认证、无效请求及部分流中断不自动重试。
+D08已实现AP49/AP53/AP54/AP58和AP61运行接受核对。AP53仅支持qa，knowledgeBaseIds最多10个、documentIds最多100个且不重复；agentId必须等于会话固定Agent。AP58 cursor为已返回sequence，默认20、最大100；步骤含run专属用量与提供方请求ID。AP54删除文档时保留历史答案并标partially_unavailable，来源元信息不返回excerpt。eventsUrl现在由D09的AP55实现。message.delta额外含`reset`：结构修复开始时true表示替换草稿，禁止把两次候选拼接；最终成功仅从AP54读取。错误补充MODEL_REQUEST_INVALID、MODEL_STREAM_INTERRUPTED、CITATION_INVALID、RESULT_INVALID、REQUIRED_SOURCE_UNAVAILABLE、PERMISSION_REVOKED；认证、无效请求及部分流中断不自动重试。
+
+### D09 对话读取补充
+
+AP48/AP50/AP51/AP52/AP55/AP60 已有实现；默认列表20条、最大100条，会话按 updatedAt/id 倒序，消息按 createdAt/id 倒序（前端反转展示、向前翻页）。游标由当前会话签名，绑定用户、组织及 accessRevision；无 cursor 表示第一页，空 q 不过滤。会话详情增加 revision、lastRunId，activeRunId/lastRunStatus 无记录时为 null；重命名只接收非空 title 与大于0的 expectedRevision，冲突409，Agent/任务类型不可变。
+
+`GET /agents/{id}/task-options` 是成员任务准备投影：返回 agentId、versionNumber、knowledgeBases[{id,name}]、documents[{id,knowledgeBaseId,title,attemptId}] 和组织有效 limits（snake_case 键沿用执行预算快照）。只列当前已就绪资料，不返回 Prompt 或连接信息；不可运行返回 AGENT_NOT_READY，非 qa 返回 TASK_NOT_SUPPORTED。消费者为 M4 范围选择器；提交仍由 AP53 按最新已保存配置和当前权限重新裁决。追问不自动扩大资料范围。
+
+AP55 用 `${runId}:${seq}` 校验 Last-Event-ID；省略从0补发，负数、非十进制、其他 run 或超过 lastSeq 均422，已清理/不连续历史409。每批最多100条，短事务授权后释放锁；无事件每1秒重读、15秒注释心跳；终态追平结束。终态快照仍可读，游标错误不能新建 run。SSE响应无JSON外壳，明确 `text/event-stream`/`no-store`。前端未知类型/版本记录不匹配并安全跳过，不据此判定成功。
+
+AP60 仅支持 format=markdown，省略默认 markdown；其他值422。未成功409 EXPORT_NOT_AVAILABLE；成功导出包含 UTC 生成时间、问题、知识范围、Agent版号、文档/处理版本、答案与逐项引用、资料不足及覆盖限制。所有动态文本按字面 Markdown 转义；不输出原始 HTML 或模型自造链接。删除文档保留历史答案并标注原文不可用，来源接口不返回 excerpt。权限失效后事件关闭，读取/下载重新鉴权。取消 AP56、运行列表 AP57、统计 AP59 仍在后续任务。
 
 ## 请求与响应 DTO
 

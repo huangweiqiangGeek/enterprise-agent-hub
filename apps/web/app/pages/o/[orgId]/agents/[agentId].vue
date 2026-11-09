@@ -43,9 +43,16 @@ const { data, status, error, refresh } = await useAsyncData(
         <p v-for="issue in data.readiness" :key="issue.code" class="notice">
           {{ issue.message }}
         </p>
-        <button class="secondary" disabled>开始任务（尚未开放）</button>
+        <NuxtLink
+          v-if="
+            data.enabled && data.taskType === 'qa' && !data.readiness.length
+          "
+          :to="`/o/${orgId}/chat?agent=${agentId}`"
+          >开始文档问答</NuxtLink
+        >
+        <button v-else class="secondary" disabled>开始任务（尚未就绪）</button>
         <p class="small muted">
-          运行功能开放后，将使用已保存的第
+          开始问答将使用已保存的第
           {{ data.versionNumber }} 版配置并计入用量。
         </p>
       </section></template

@@ -21,6 +21,7 @@ async function checkAccess() {
       components['schemas']['OrganizationDTO']
     >('/organizations/current', { organizationId: orgId })
     if (organization.value?.id !== orgId) return
+    message.value = ''
     if (current.accessRevision !== organization.value.accessRevision) {
       clearOrganization()
       organization.value = current
@@ -39,7 +40,7 @@ async function checkAccess() {
   }
 }
 onMounted(() => {
-  timer = setInterval(checkAccess, 30000)
+  timer = setInterval(checkAccess, 5000)
   window.addEventListener('focus', checkAccess)
 })
 onUnmounted(() => {
@@ -89,6 +90,8 @@ onUnmounted(() => {
             >组织概览</NuxtLink
           ><NuxtLink v-if="organization" :to="`/o/${organization.id}/knowledge`"
             >知识库</NuxtLink
+          ><NuxtLink v-if="organization" :to="`/o/${organization.id}/chat`"
+            >对话工作台</NuxtLink
           ><NuxtLink v-if="organization" :to="`/o/${organization.id}/agents`"
             >Agent</NuxtLink
           ><NuxtLink
