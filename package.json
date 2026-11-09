@@ -1,0 +1,31 @@
+{
+  "name": "enterprise-agent-hub",
+  "private": true,
+  "packageManager": "pnpm@12.14.0",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "24.22.2",
+      "onFail": "download"
+    }
+  },
+  "engines": {
+    "node": ">=24.22.2 <25",
+    "pnpm": "12.14.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @eah/web dev",
+    "build": "pnpm --filter @eah/web build",
+    "lint": "pnpm --filter @eah/web lint",
+    "typecheck": "pnpm --filter @eah/web typecheck",
+    "format:check": "prettier --check package.json pnpm-workspace.yaml apps/web",
+    "format": "prettier --write package.json pnpm-workspace.yaml apps/web",
+    "test:unit": "pnpm --filter @eah/web test:unit",
+    "test:e2e": "pnpm --filter @eah/web test:e2e",
+    "api:types": "openapi-typescript docs/openapi.json -o apps/web/app/types/api.d.ts"
+  },
+  "devDependencies": {
+    "openapi-typescript": "7.13.0",
+    "prettier": "3.9.10"
+  }
+}

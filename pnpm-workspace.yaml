@@ -1,0 +1,13 @@
+packages:
+  - apps/*
+
+minimumReleaseAgeExclude:
+  - '@playwright/test@1.65.0'
+  - playwright-core@1.65.0
+  - playwright@1.65.0
+
+engineStrict: true
+saveExact: true
+
+allowBuilds:
+  esbuild: true

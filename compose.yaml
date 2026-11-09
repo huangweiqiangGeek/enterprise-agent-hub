@@ -1,0 +1,102 @@
+name: enterprise-agent-hub
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.7-pg18@sha256:c29f30688a9ad961691bdf0ec1650717cc132a5814619d80f80463d6e4c42e47
+    environment:
+      POSTGRES_USER: eah
+      POSTGRES_PASSWORD: eah_dev
+      POSTGRES_DB: eah
+    ports:
+      - '127.0.0.1:${EAH_POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U eah -d eah']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    stop_grace_period: 15s
+
+  redis:
+    image: redis:7.4.7-alpine@sha256:02f2cc4882f8bf87c79a220ac958f58c700bdec0dfb9b9ea61b62fb0e8f1bfcf
+    ports:
+      - '127.0.0.1:${EAH_REDIS_PORT:-6379}:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  s3:
+    profiles: ['storage']
+    image: chrislusf/seaweedfs:4.52@sha256:57877e32bb90073b37dc109b438ba66e84fd5ed9ced5f5c04f56444ef243ce59
+    command:
+      [
+        'mini',
+        '-dir=/data',
+        '-ip=127.0.0.1',
+        '-ip.bind=0.0.0.0',
+        '-webdav=false',
+        '-admin.ui=false',
+      ]
+    environment:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    ports:
+      - '127.0.0.1:4566:8333'
+    volumes:
+      - s3_objects:/data
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1:8333/status']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  ingestion:
+    profiles: ['ingestion']
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    image: eah-worker:local
+    dns: ['${EAH_WORKER_DNS:-223.5.5.5}']
+    environment: &worker-environment
+      EAH_DATABASE_URL: postgresql+psycopg://eah:eah_dev@postgres:5432/eah
+      EAH_REDIS_URL: redis://redis:6379/0
+      EAH_S3_ENDPOINT: http://s3:8333
+    depends_on: &worker-dependencies
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      s3:
+        condition: service_healthy
+    init: true
+    read_only: true
+    tmpfs: ['/tmp:size=256m,mode=1777']
+    mem_limit: 2g
+    cpus: 2
+    pids_limit: 96
+    cap_drop: ['ALL']
+    security_opt: ['no-new-privileges:true']
+    stop_grace_period: 30s
+
+  dispatcher:
+    profiles: ['ingestion']
+    image: eah-worker:local
+    command: ['python', '-m', 'backend.workers.dispatcher']
+    environment: *worker-environment
+    depends_on: *worker-dependencies
+    init: true
+    read_only: true
+    tmpfs: ['/tmp:size=32m,mode=1777']
+    mem_limit: 512m
+    cpus: 1
+    pids_limit: 32
+    cap_drop: ['ALL']
+    security_opt: ['no-new-privileges:true']
+
+volumes:
+  postgres_data:
+  s3_objects:

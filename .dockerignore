@@ -1,0 +1,8 @@
+**
+!pyproject.toml
+!uv.lock
+!.python-version
+!backend
+!backend/**
+backend/**/__pycache__
+backend/**/*.pyc

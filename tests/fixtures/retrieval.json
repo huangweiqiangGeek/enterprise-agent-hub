@@ -1,0 +1,12 @@
+{
+  "version": "d06-20261107-v1",
+  "documents": [
+    {"name": "发布回滚.txt", "text": "发布失败的处理：停止新流量，将服务回滚到上一稳定版本，并核对错误率。"},
+    {"name": "database-backup.txt", "text": "Database recovery: restore the latest nightly backup, then replay transaction logs to the recovery point."},
+    {"name": "午餐菜单.txt", "text": "本周午餐供应烤鱼、沙拉和苹果，与系统部署无关。"}
+  ],
+  "queries": [
+    {"query": "发布失败后应该如何回滚？", "expected": "发布回滚.txt"},
+    {"query": "How do we recover the database using backups?", "expected": "database-backup.txt"}
+  ]
+}
