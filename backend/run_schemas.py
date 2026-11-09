@@ -91,6 +91,8 @@ class RunSnapshot(DTO):
     status: RunStatus
     cancel_requested: bool
     input_summary: str
+    input: QAInput
+    deadline_at: datetime | None
     config_version: dict[str, Any]
     budget_snapshot: dict[str, int]
     created_at: datetime

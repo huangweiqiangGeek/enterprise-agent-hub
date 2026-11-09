@@ -193,7 +193,9 @@ AP48/AP50/AP51/AP52/AP55/AP60 已有实现；默认列表20条、最大100条，
 
 AP55 用 `${runId}:${seq}` 校验 Last-Event-ID；省略从0补发，负数、非十进制、其他 run 或超过 lastSeq 均422，已清理/不连续历史409。每批最多100条，短事务授权后释放锁；无事件每1秒重读、15秒注释心跳；终态追平结束。终态快照仍可读，游标错误不能新建 run。SSE响应无JSON外壳，明确 `text/event-stream`/`no-store`。前端未知类型/版本记录不匹配并安全跳过，不据此判定成功。
 
-AP60 仅支持 format=markdown，省略默认 markdown；其他值422。未成功409 EXPORT_NOT_AVAILABLE；成功导出包含 UTC 生成时间、问题、知识范围、Agent版号、文档/处理版本、答案与逐项引用、资料不足及覆盖限制。所有动态文本按字面 Markdown 转义；不输出原始 HTML 或模型自造链接。删除文档保留历史答案并标注原文不可用，来源接口不返回 excerpt。权限失效后事件关闭，读取/下载重新鉴权。取消 AP56、运行列表 AP57、统计 AP59 仍在后续任务。
+AP60 仅支持 format=markdown，省略默认 markdown；其他值422。未成功409 EXPORT_NOT_AVAILABLE；成功导出包含 UTC 生成时间、问题、知识范围、Agent版号、文档/处理版本、答案与逐项引用、资料不足及覆盖限制。所有动态文本按字面 Markdown 转义；不输出原始 HTML 或模型自造链接。删除文档保留历史答案并标注原文不可用，来源接口不返回 excerpt。权限失效后事件关闭，读取/下载重新鉴权。运行列表 AP57、统计 AP59 仍在后续任务。
+
+D10已实现AP56：仅发起者，校验当前成员与CSRF；无请求体/幂等键，按目标状态幂等。初始非终态返回202（排队直接取消，运行中记录cancelRequested）；已经终态返回200且不改原结果。响应均为Envelope<RunSnapshot>。取消先提交后不能成功，成功先提交后取消返回原成功。响应未知可对原run再次取消或查询AP54，禁止推断已取消。管理员只读审计无此权限，越权目标404。AP54增加input（QAInput）和deadlineAt（未启动为null），用于人工核对重试和执行时限。AP53的retryOfRunId已支持：本会话失败/取消/超时终态，新run使用当前保存配置和预算，原输入先重新校验，仍用原接受幂等机制。
 
 ## 请求与响应 DTO
 
@@ -216,7 +218,7 @@ AP60 仅支持 format=markdown，省略默认 markdown；其他值422。未成�
 | ConversationSummary | id、title、agentId、agentName、taskType、updatedAt、activeRunId?、lastRunStatus?；组织和 owner 从鉴权确定 |
 | RunCreate | agentId、input、retryOfRunId?；agentId 必须等于会话固定 Agent；retryOf 必须属于本会话且为失败/取消/超时终态；新运行用当前已保存配置 |
 | RunAccepted | runId、conversationId、status、eventsUrl、createdAt；返回前用户消息、run、幂等记录、outbox 已同事务提交 |
-| RunSnapshot | id、conversationId、taskType、status、cancelRequested、inputSummary、configVersion、budgetSnapshot、createdAt、startedAt?、finishedAt?、lastSeq、partialMessage?、result?、citations[]、coverage、resultVisibility、errorCode?、retryOfRunId? |
+| RunSnapshot | id、conversationId、taskType、status、cancelRequested、inputSummary、input=QAInput、configVersion、budgetSnapshot、createdAt、startedAt?、deadlineAt?、finishedAt?、lastSeq、partialMessage?、result?、citations[]、coverage、resultVisibility、errorCode?、retryOfRunId? |
 | Message | id、runId、role=user/assistant、content、isPartial、resultVisibility、citations[]、createdAt；结果结构化数据在 result，Markdown 由平台受控渲染 |
 | SourceDetail | id、kind=document/github、availability=available/deleted/revoked/unavailable、title、excerpt?、locator?、documentId?、attemptId?、chunkId?、repoId?、itemType?、number?、htmlUrl?、observedAt、contentHash；正文按当前权限再取 |
 | StepSummary | id、logicalStepKey、attempt、kind、name、status、startedAt、finishedAt?、durationMs?、publicInputSummary、publicOutputSummary、sourceIds[]、usage?、errorCode? |

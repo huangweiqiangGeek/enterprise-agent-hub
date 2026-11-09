@@ -195,6 +195,18 @@ async def snapshot(run_id: UUID, org_id: OrgId, service: Service) -> Envelope[Ru
     return Envelope(data=await service.snapshot(org_id, run_id), request_id=service.request_id)
 
 
+@router.post(
+    "/runs/{run_id}/cancel",
+    response_model=Envelope[RunSnapshot],
+    responses={202: {"model": Envelope[RunSnapshot]}},
+)
+async def cancel(
+    run_id: UUID, org_id: OrgId, service: Service, response: Response
+) -> Envelope[RunSnapshot]:
+    response.status_code, result = await service.cancel(org_id, run_id)
+    return Envelope(data=result, request_id=service.request_id)
+
+
 @router.get("/runs/{run_id}/steps", response_model=Envelope[Page[StepSummary]])
 async def steps(
     run_id: UUID,

@@ -1,6 +1,6 @@
 # Agent、检索与只读工具执行设计
 
-> 版本 1.1 · 2026-11-09 · D08 已实现 T1 持久问答图；T2/T3、SSE 页面及完整取消恢复仍按任务分阶段实现。需求依据：[PRD 三类任务](PRD.md#4-三类核心任务)。通用状态、数值和 API 以 [contracts](contracts.md) 为准；实测见 [D08 记录](D08-持久运行与文档问答实施记录.md)。
+> 版本 1.2 · 2026-11-09 · T1 持久问答、SSE 页面及 D10 有限取消恢复已实现；T2/T3 按后续任务实施。需求依据：[PRD 三类任务](PRD.md#4-三类核心任务)。通用状态、数值和 API 以 [contracts](contracts.md) 为准；恢复边界见 [D10 记录](D10-取消与进程恢复实施记录.md)。
 
 ## 目录导航
 
@@ -23,7 +23,7 @@
 
 ## 统一执行图
 
-D08 实现将 G02～G08 收敛为 `context → retrieve → generate → publish` 四个 LangGraph 节点，领取/租约由共享 RunState 裁决。checkpoint 只存 runId/graphVersion/候选块；输入、版本、历史消息 ID、证据与消费从业务表读。每个模型/工具步骤保留输入摘要哈希，模型修复最多两次且重新预留预算。首版 T1 固定检索，不接受模型自选工具；完整重放复用、取消入口和 SSE 恢复留待 D09/D10。丢失租约或未知部分流当前明确失败，不把 checkpoint 存在当成自动恢复已验收。
+D08 实现将 G02～G08 收敛为 `context → retrieve → generate → publish` 四个 LangGraph 节点，领取/租约由共享 RunState 裁决。checkpoint 只存 runId/graphVersion/候选块；输入、版本、历史消息 ID、证据与消费从业务表读。每个模型/工具步骤保留输入摘要哈希，模型修复最多两次且重新预留预算。首版 T1 固定检索，不接受模型自选工具。D10 图版本为 qa-v2：每个 generation 独立 checkpoint thread，通过已保存业务步骤复用完整结果，不清空或接管旧线程。旧图版本、恢复次数耗尽及未知模型结果明确 RUN_INTERRUPTED。
 
 ```mermaid
 flowchart TD
@@ -135,6 +135,10 @@ qa/compare 必需 knowledge.search；progress 额外必需 github.search_issues 
 模型适配器初版以 Chat Completions 流和 Embeddings 协议落地；这是兼容性选择，不表示所有“兼容接口”行为一致。D01 固定支持的提供方能力、tokenizer 和 max output 参数，D08 验证实际 usage、工具调用与结构校验。[聊天创建接口](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)、[向量接口](https://developers.openai.com/api/reference/resources/embeddings/methods/create)。
 
 ### 竞争与故障处理
+
+D10 watchdog 由独立 dispatcher 每5秒检查，deadline 到期即使租约尚新也裁决终态；心跳每5秒只续30秒租约，异常会取消并等待当前图/流关闭。新 generation 在重新投递前写入，恢复仍占原组织运行名额，最多两次，不重置 startedAt/deadline 或任何已尝试预算。运行中取消先持久化标记，worker 或 watchdog 收敛为唯一终态。Celery 130/140秒软/硬时限作为进程失去响应的最后回收保障，不能延长业务 deadline；已发生外部调用不能撤销。
+
+工具来源与成功 step 同事务保存；按 logicalStepKey 复用前重新授权。完整合法模型块保存于成功 model step 的内部 `_blocks`，公开步骤只返回摘要；恢复重新校验来源后提交，未知或部分模型输出不重新调用并拼接。历史消息ID首次固化，恢复不悄悄换上下文。终态提交后丢通知只重读快照。恢复投递沿用同一 outbox job，旧投递仍由数据库领取防重。
 
 | 情况 | 裁决与续作 |
 | --- | --- |

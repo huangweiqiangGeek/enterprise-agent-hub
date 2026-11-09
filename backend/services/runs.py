@@ -15,10 +15,11 @@ from backend.models.model_settings import OrgSettings, UsageEntry
 from backend.models.runs import Conversation, Message, Run, RunCitation, RunSource, RunStep
 from backend.repositories.agents import AgentRepository
 from backend.repositories.model_settings import ModelRepository
-from backend.repositories.runs import RunRepository, fail
+from backend.repositories.runs import TERMINAL, RunRepository, fail
 from backend.run_schemas import (
     ConversationCreate,
     ConversationView,
+    QAInput,
     QAResult,
     RunAccepted,
     RunCreate,
@@ -29,6 +30,7 @@ from backend.run_schemas import (
 from backend.schemas import Page
 from backend.services.agents import AgentService
 from backend.services.identity import IdentityService
+from backend.services.run_state import GRAPH_VERSION, RunState
 
 
 class RunService(AgentService):
@@ -208,7 +210,7 @@ class RunService(AgentService):
                 "agentVersionId": str(agent.current_version_id),
                 "versionNumber": config["versionNumber"],
                 "prompt": config["prompt"],
-                "graphVersion": "qa-v1",
+                "graphVersion": GRAPH_VERSION,
                 "toolKeys": config["toolKeys"],
                 "toolSchemaVersion": "knowledge.search-v1",
                 "documents": {str(d.id): str(d.current_attempt_id) for d in selected},
@@ -230,6 +232,7 @@ class RunService(AgentService):
                 conversation_id=conversation_id,
                 initiator_id=identity.require_user().id,
                 agent_version_id=agent.current_version_id,
+                graph_version=GRAPH_VERSION,
                 input_snapshot=value.input.model_dump(mode="json", by_alias=True),
                 config_snapshot=config_snapshot,
                 budget_snapshot=limits,
@@ -304,6 +307,8 @@ class RunService(AgentService):
                 status=cast(RunStatus, run.status),
                 cancel_requested=run.cancel_requested,
                 input_summary=run.input_snapshot["question"],
+                input=QAInput.model_validate(run.input_snapshot),
+                deadline_at=run.deadline_at,
                 config_version={
                     k: v for k, v in run.config_snapshot.items() if k not in {"prompt", "documents"}
                 },
@@ -368,7 +373,9 @@ class RunService(AgentService):
                         if row.finished_at
                         else None,
                         public_input_summary=row.input_summary,
-                        public_output_summary=row.output_summary,
+                        public_output_summary={
+                            k: v for k, v in row.output_summary.items() if not k.startswith("_")
+                        },
                         source_ids=row.output_summary.get("sourceIds", []),
                         usage=[
                             {
@@ -389,3 +396,16 @@ class RunService(AgentService):
                 items=items,
                 next_cursor=str(rows[limit - 1].sequence) if len(rows) > limit else None,
             )
+
+    async def cancel(self, org: UUID, run_id: UUID) -> tuple[int, RunSnapshot]:
+        async with self.user_access(org, True) as (identity, _):
+            repo = RunRepository(identity.db, org)
+            run = await repo.lock(run_id)
+            if run.initiator_id != identity.require_user().id:
+                raise fail("RESOURCE_NOT_FOUND", 404)
+            status = 200 if run.status in TERMINAL else 202
+            if run.status not in TERMINAL:
+                run.cancel_requested = True
+                if run.status == "queued":
+                    await RunState.close(identity.db, repo, run, error="RUN_CANCELLED")
+        return status, await self.snapshot(org, run_id)

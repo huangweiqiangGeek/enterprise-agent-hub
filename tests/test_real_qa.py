@@ -202,14 +202,14 @@ def test_real_qa_linux_duplicate_delivery(database_url: str) -> None:
                 ).fetchone() == (1,)
                 checkpoints = db.execute(
                     "SELECT count(*) FROM checkpoints.checkpoints WHERE thread_id LIKE %s",
-                    (f"%:{run_id}",),
+                    (f"%:{run_id}:g%",),
                 ).fetchone()
                 assert checkpoints and checkpoints[0] >= 4
             print(
                 json.dumps(
                     {
                         "fixture": "qa-release-v1",
-                        "graph": "qa-v1",
+                        "graph": "qa-v2",
                         "model": "qwen-plus",
                         "elapsedMs": round((time.monotonic() - begin) * 1000),
                         "answer": result["result"]["answer"],

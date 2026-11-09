@@ -1,7 +1,6 @@
 """Linux run consumer; duplicate deliveries only attempt a database claim."""
 
 import sys
-from datetime import timedelta
 from uuid import UUID
 
 from celery import Celery  # type: ignore[import-untyped]
@@ -11,9 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 from backend.config import Settings
 from backend.db import make_engine
 from backend.models.identity import now
-from backend.models.knowledge import OutboxJob
 from backend.models.runs import Run
-from backend.repositories.runs import RunRepository
 from backend.runtime import run_async
 from backend.services.model_probe import ModelProbe
 from backend.services.qa import QA
@@ -54,7 +51,12 @@ async def reconcile(engine: AsyncEngine, config: Settings) -> None:
                 .where(
                     or_(
                         Run.status == "queued",
-                        (Run.status == "running") & (Run.lease_until < now()),
+                        (Run.status == "running")
+                        & or_(
+                            Run.lease_until < now(),
+                            Run.deadline_at <= now(),
+                            Run.cancel_requested.is_(True),
+                        ),
                     )
                 )
                 .order_by(Run.created_at)
@@ -63,24 +65,7 @@ async def reconcile(engine: AsyncEngine, config: Settings) -> None:
         )
     for row in candidates:
         state = RunState(engine, config, row.organization_id, row.id)
-        state.generation = row.lease_generation
-        if row.status == "running" or row.created_at < now() - timedelta(seconds=300):
-            await state.terminal(
-                error="RUN_INTERRUPTED" if row.status == "running" else "RUN_QUEUE_TIMEOUT",
-                expired_only=True,
-            )
-        elif row.created_at < now() - timedelta(seconds=30):
-            async with sessions.begin() as db:
-                current = await RunRepository(db, row.organization_id).lock(row.id)
-                if current.status != "queued":
-                    continue
-                job = await db.scalar(
-                    select(OutboxJob)
-                    .where(OutboxJob.resource_id == row.id, OutboxJob.job_type == "run.execute")
-                    .with_for_update()
-                )
-                if job and job.published_at and job.published_at < now() - timedelta(seconds=30):
-                    job.published_at, job.publish_attempts, job.available_at = None, 0, now()
+        await state.reconcile()
 
 
 if __name__ == "__main__":

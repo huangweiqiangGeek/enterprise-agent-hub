@@ -7,16 +7,19 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from backend.config import Settings
 from backend.models.identity import now
+from backend.models.knowledge import OutboxJob
 from backend.models.model_settings import UsageEntry
-from backend.models.runs import Message, Run, RunCitation, RunStep
+from backend.models.runs import Message, Run, RunCitation, RunSource, RunStep
 from backend.repositories.runs import TERMINAL, RunRepository, fail
 from backend.run_schemas import QAResult
 from backend.services.errors import AppError
 from backend.services.model_probe import Attempt
+
+GRAPH_VERSION = "qa-v2"
 
 
 class RunState:
@@ -29,7 +32,23 @@ class RunState:
         async with self.sessions.begin() as db:
             repo = RunRepository(db, self.org)
             run = await repo.lock(self.id)
-            if run.status != "queued":
+            recovering = run.status == "running" and run.lease_owner is None
+            if run.status != "queued" and not recovering:
+                return None
+            if run.cancel_requested or (run.deadline_at and run.deadline_at <= now()):
+                await self.close(db, repo, run, error="RUN_CANCELLED")
+                return None
+            if run.graph_version != GRAPH_VERSION:
+                await self.close(db, repo, run, error="RUN_INTERRUPTED")
+                return None
+            if recovering:
+                await repo.authorize(run)
+                self.generation = run.lease_generation
+                run.lease_owner = str(uuid4())
+                run.lease_until = now() + timedelta(seconds=30)
+                return run
+            if run.created_at <= now() - timedelta(seconds=300):
+                await self.close(db, repo, run, error="RUN_QUEUE_TIMEOUT")
                 return None
             active = await db.scalar(
                 select(func.count())
@@ -193,13 +212,20 @@ class RunState:
             row.duration_ms, row.provider_request_id = duration, request_id
 
     async def finish_step(
-        self, step_id: UUID, output: dict[str, Any], error: str | None = None
+        self,
+        step_id: UUID,
+        output: dict[str, Any],
+        error: str | None = None,
+        sources: list[RunSource] | None = None,
     ) -> None:
         async with self.sessions.begin() as db:
             repo = RunRepository(db, self.org)
             run = await repo.lock(self.id)
             if run.status != "running" or run.lease_generation != self.generation:
                 return
+            await repo.active(run, self.generation)
+            if sources:
+                db.add_all(sources)
             step = await db.get(RunStep, step_id)
             assert step and step.run_id == run.id
             step.status, step.error_code, step.finished_at = (
@@ -225,6 +251,90 @@ class RunState:
                         "willRetry": False,
                     },
                 )
+
+    async def completed(self, key: str) -> RunStep | None:
+        async with self.sessions.begin() as db:
+            repo = RunRepository(db, self.org)
+            run = await repo.lock(self.id)
+            await repo.active(run, self.generation)
+            if not await repo.sources_valid(run):
+                raise fail("REQUIRED_SOURCE_UNAVAILABLE")
+            result = await db.scalar(
+                select(RunStep)
+                .where(
+                    RunStep.run_id == run.id,
+                    RunStep.logical_step_key == key,
+                    RunStep.status == "succeeded",
+                )
+                .order_by(RunStep.attempt_no.desc())
+                .limit(1)
+            )
+            return result if isinstance(result, RunStep) else None
+
+    async def reconcile(self) -> None:
+        async with self.sessions.begin() as db:
+            repo = RunRepository(db, self.org)
+            run = await repo.lock(self.id)
+            if run.status in TERMINAL:
+                return
+            if run.cancel_requested or (run.deadline_at and run.deadline_at <= now()):
+                await self.close(db, repo, run, error="RUN_DEADLINE_EXCEEDED")
+                return
+            if run.status == "queued":
+                if run.created_at <= now() - timedelta(seconds=300):
+                    await self.close(db, repo, run, error="RUN_QUEUE_TIMEOUT")
+                    return
+                if run.created_at > now() - timedelta(seconds=30):
+                    return
+            else:
+                if run.lease_until and run.lease_until > now():
+                    return
+                steps = list(await db.scalars(select(RunStep).where(RunStep.run_id == run.id)))
+                model_steps = [s for s in steps if s.kind == "model"]
+                reusable = any(
+                    s.status == "succeeded" and s.output_summary.get("_blocks") for s in model_steps
+                )
+                try:
+                    await repo.authorize(run)
+                    if not await repo.sources_valid(run):
+                        raise fail("REQUIRED_SOURCE_UNAVAILABLE")
+                    if (
+                        run.graph_version != GRAPH_VERSION
+                        or run.lease_generation >= 3
+                        or (model_steps and not reusable)
+                    ):
+                        raise fail("RUN_INTERRUPTED")
+                except AppError as exc:
+                    await self.close(db, repo, run, error=exc.code)
+                    return
+                for step in steps:
+                    if step.status == "running":
+                        step.status, step.error_code, step.finished_at = (
+                            "outcome_unknown",
+                            "TOOL_OUTCOME_UNKNOWN",
+                            now(),
+                        )
+                for usage in await db.scalars(
+                    select(UsageEntry).where(
+                        UsageEntry.run_id == run.id, UsageEntry.status == "pending"
+                    )
+                ):
+                    usage.status = "outcome_unknown"
+                # Revoke ownership before publishing work. Recovery never extends deadline.
+                run.lease_generation += 1
+                run.lease_owner = None
+                run.lease_until = now() + timedelta(seconds=30)
+            job = await db.scalar(
+                select(OutboxJob)
+                .where(OutboxJob.resource_id == run.id, OutboxJob.job_type == "run.execute")
+                .with_for_update()
+            )
+            if job and (
+                run.status == "running"
+                or (job.published_at and job.published_at <= now() - timedelta(seconds=30))
+            ):
+                job.published_at, job.publish_attempts, job.available_at = None, 0, now()
+                job.lease_token, job.lease_until = None, None
 
     async def delta(self, text: str, reset: bool = False) -> None:
         async with self.sessions.begin() as db:
@@ -262,96 +372,109 @@ class RunState:
                 or (run.status == "queued" and run.created_at <= now() - timedelta(seconds=300))
             ):
                 return False
-            if result:
-                try:
-                    await repo.active(run, self.generation)
-                    if not await repo.sources_valid(run):
-                        raise fail("REQUIRED_SOURCE_UNAVAILABLE")
-                except AppError as exc:
-                    error, result = exc.code, None
-            if run.cancel_requested:
-                error, result = "RUN_CANCELLED", None
-            elif run.deadline_at and run.deadline_at <= now():
-                error, result = "RUN_DEADLINE_EXCEEDED", None
-            run.status = (
-                "succeeded"
-                if result
-                else "cancelled"
-                if error == "RUN_CANCELLED"
-                else "timed_out"
-                if error == "RUN_DEADLINE_EXCEEDED"
-                else "failed"
+            return await self.close(db, repo, run, result, error)
+
+    @staticmethod
+    async def close(
+        db: AsyncSession,
+        repo: RunRepository,
+        run: Run,
+        result: QAResult | None = None,
+        error: str | None = None,
+    ) -> bool:
+        if run.status in TERMINAL:
+            return False
+        if result:
+            try:
+                await repo.active(run, run.lease_generation)
+                if not await repo.sources_valid(run):
+                    raise fail("REQUIRED_SOURCE_UNAVAILABLE")
+            except AppError as exc:
+                error, result = exc.code, None
+        if run.cancel_requested:
+            error, result = "RUN_CANCELLED", None
+        elif run.deadline_at and run.deadline_at <= now():
+            error, result = "RUN_DEADLINE_EXCEEDED", None
+        run.status = (
+            "succeeded"
+            if result
+            else "cancelled"
+            if error == "RUN_CANCELLED"
+            else "timed_out"
+            if error == "RUN_DEADLINE_EXCEEDED"
+            else "failed"
+        )
+        run.error_code, run.finished_at, run.lease_until = error, now(), None
+        run.lease_owner = None
+        message = await db.scalar(
+            select(Message).where(Message.run_id == run.id, Message.role == "assistant")
+        )
+        if result:
+            assert message
+            message.content, message.result_json, message.is_partial = (
+                result.answer,
+                result.model_dump(mode="json", by_alias=True),
+                False,
             )
-            run.error_code, run.finished_at, run.lease_until = error, now(), None
-            message = await db.scalar(
-                select(Message).where(Message.run_id == run.id, Message.role == "assistant")
-            )
-            if result:
-                assert message
-                message.content, message.result_json, message.is_partial = (
-                    result.answer,
-                    result.model_dump(mode="json", by_alias=True),
-                    False,
-                )
-                run.coverage = result.coverage
-                label = 0
-                for group in ("claims", "conflicts"):
-                    for index, claim in enumerate(getattr(result, group)):
-                        for source in claim.source_ids:
-                            label += 1
-                            db.add(
-                                RunCitation(
-                                    organization_id=self.org,
-                                    run_id=run.id,
-                                    message_id=message.id,
-                                    source_id=source,
-                                    label=label,
-                                    claim_path=f"{group}.{index}",
-                                )
+            run.coverage = result.coverage
+            label = 0
+            for group in ("claims", "conflicts"):
+                for index, claim in enumerate(getattr(result, group)):
+                    for source in claim.source_ids:
+                        label += 1
+                        db.add(
+                            RunCitation(
+                                organization_id=run.organization_id,
+                                run_id=run.id,
+                                message_id=message.id,
+                                source_id=source,
+                                label=label,
+                                claim_path=f"{group}.{index}",
                             )
-            elif message and error in {
-                "PERMISSION_REVOKED",
-                "REQUIRED_SOURCE_UNAVAILABLE",
-                "CITATION_INVALID",
-            }:
-                message.content = ""
-            pending = list(
-                await db.scalars(
-                    select(UsageEntry).where(
-                        UsageEntry.run_id == run.id, UsageEntry.status == "pending"
-                    )
+                        )
+        elif message and error in {
+            "PERMISSION_REVOKED",
+            "REQUIRED_SOURCE_UNAVAILABLE",
+            "CITATION_INVALID",
+        }:
+            message.content = ""
+        pending = list(
+            await db.scalars(
+                select(UsageEntry).where(
+                    UsageEntry.run_id == run.id, UsageEntry.status == "pending"
                 )
             )
-            for usage in pending:
-                usage.status = "outcome_unknown"
-            for step in await db.scalars(
-                select(RunStep).where(RunStep.run_id == run.id, RunStep.status == "running")
-            ):
-                step.status, step.error_code, step.finished_at = "failed", error, now()
-            entries = list(await db.scalars(select(UsageEntry).where(UsageEntry.run_id == run.id)))
-            usage_summary = [
-                {
-                    "kind": u.operation_kind,
-                    "status": u.status,
-                    "inputTokens": u.input_tokens,
-                    "outputTokens": u.output_tokens,
-                    "tokenSource": u.token_source,
-                    "reservedTokens": u.reserved_tokens,
-                    "billedUnits": u.billed_units,
-                }
-                for u in entries
-            ]
-            repo.event(
-                run,
-                "run.completed" if result else f"run.{run.status}",
-                {
-                    "finishedAt": run.finished_at.isoformat(),
-                    "messageId": str(message.id) if message else None,
-                    "resultRevision": 1,
-                    "errorCode": error,
-                    "message": "任务已结束，请查看执行记录。" if error else None,
-                    "partialMessageId": str(message.id) if message and not result else None,
-                    "usageSummary": usage_summary,
-                },
-            )
-            return True
+        )
+        for usage in pending:
+            usage.status = "outcome_unknown"
+        for step in await db.scalars(
+            select(RunStep).where(RunStep.run_id == run.id, RunStep.status == "running")
+        ):
+            step.status, step.error_code, step.finished_at = "failed", error, now()
+        entries = list(await db.scalars(select(UsageEntry).where(UsageEntry.run_id == run.id)))
+        usage_summary = [
+            {
+                "kind": u.operation_kind,
+                "status": u.status,
+                "inputTokens": u.input_tokens,
+                "outputTokens": u.output_tokens,
+                "tokenSource": u.token_source,
+                "reservedTokens": u.reserved_tokens,
+                "billedUnits": u.billed_units,
+            }
+            for u in entries
+        ]
+        repo.event(
+            run,
+            "run.completed" if result else f"run.{run.status}",
+            {
+                "finishedAt": run.finished_at.isoformat(),
+                "messageId": str(message.id) if message else None,
+                "resultRevision": 1,
+                "errorCode": error,
+                "message": "任务已结束，请查看执行记录。" if error else None,
+                "partialMessageId": str(message.id) if message and not result else None,
+                "usageSummary": usage_summary,
+            },
+        )
+        return True

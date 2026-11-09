@@ -14,6 +14,8 @@ D04 上传验收需真实 PostgreSQL、Redis 与本地 S3 协议服务；覆盖�
 
 ## 测试分层
 
+D10使用`test_run_recovery.py`与测试专用`run_fault_process.py`验证真实子进程被杀后的七个窗口、旧generation、取消成功竞争、绝对deadline、未知结果与预算保持；真实PG/checkpoint配合受控模型协议。`dialogue.spec.ts`增加停止响应丢失、离线刷新、关联重试及双击幂等。Linux真实百炼正常路径另验，不将Windows进程故障结果声称为Linux SIGKILL或提供方故障测试。详情见[D10记录](D10-取消与进程恢复实施记录.md)。
+
 D09使用`test_dialogue.py`验证真实隔离库的会话权限/分页/版本、事件游标、来源与导出；`run-stream.test.ts`覆盖字节流解析和连续序号。`EAH_BROWSER_QA=1`配合`--model-fixture --storage`与`EAH_BROWSER_INGESTION=1`启用受控问答浏览器验收（普通backend不启用）；覆盖刷新/断网/响应丢失/游标过期/引用/导出/追问与撤权。真实模型仍由`test_real_qa.py`显式运行，另验新来源/导出/SSE读取，不与受控浏览器结果混记。详情见[D09记录](D09-对话与恢复实施记录.md)。
 
 D08 使用 `tests/test_runs.py`、`test_run_migration.py` 验真实 PG/S3 的接受/并发/计量/终态与空库迁移，受控提供方覆盖有来源、资料不足、冲突、追问四例及伪引用/断流/撤权。`EAH_RUN_REAL_QA=1` 单列真实百炼、Redis 重复投递、Linux run worker 与 PostgreSQL checkpoint；临时资源隔离并清理。它证明一个固定问答样例的端到端执行，不代替 D19 的广泛语义评测，也不代表 D09 页面或完整 SSE 恢复。命令与证据见 [D08 记录](D08-持久运行与文档问答实施记录.md)。

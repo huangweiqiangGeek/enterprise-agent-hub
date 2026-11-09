@@ -2,8 +2,11 @@
 import type { components } from '../types/api'
 import { apiError } from '../utils/api-error'
 import { object, terminal } from '../utils/run-stream'
-const props = defineProps<{ org: string; runId: string }>()
-const emit = defineEmits<{ settled: [] }>()
+const props = defineProps<{ org: string; runId: string; editable?: boolean }>()
+const emit = defineEmits<{
+  settled: []
+  retry: [value: components['schemas']['RunSnapshot']]
+}>()
 const { $api } = useNuxtApp()
 const { organization } = useIdentity()
 const { snapshot, draft, connection, error, recover } = useRun(
@@ -22,6 +25,31 @@ const stepCursor = ref<string | null>(null)
 const message = ref('')
 const dialog = ref<HTMLDialogElement>()
 let generation = 0
+const stopping = ref(false)
+const cancelPending = ref(false)
+async function cancel() {
+  if (stopping.value || !props.editable) return
+  const epoch = generation
+  stopping.value = true
+  message.value = ''
+  try {
+    const result = await $api.request<components['schemas']['RunSnapshot']>(
+      `/runs/${props.runId}/cancel`,
+      { organizationId: props.org, method: 'POST' },
+    )
+    if (epoch !== generation) return
+    snapshot.value = result
+    cancelPending.value = result.cancelRequested && !terminal(result.status)
+    recover()
+  } catch (cause) {
+    if (epoch === generation) {
+      message.value = `停止请求尚未确认：${apiError(cause).message} 可重试停止，仍作用于原运行。`
+      recover()
+    }
+  } finally {
+    if (epoch === generation) stopping.value = false
+  }
+}
 const status: Record<string, string> = {
   queued: '排队中',
   running: '执行中',
@@ -30,12 +58,24 @@ const status: Record<string, string> = {
   cancelled: '已取消',
   timed_out: '超时',
 }
+const failureReason: Record<string, string> = {
+  RUN_CANCELLED: '运行已停止，已发生的调用仍保留计量。可核对资料后准备新重试。',
+  RUN_DEADLINE_EXCEEDED:
+    '已达到执行时限，未继续调用。可缩小问题范围后准备新重试。',
+  RUN_INTERRUPTED:
+    '执行被中断，无法确认的输出没有继续生成或拼接。原记录与部分文本已保留。',
+  MODEL_STREAM_INTERRUPTED: '模型流中断，部分文本未经最终校验。可准备新重试。',
+  RUN_QUEUE_TIMEOUT: '排队超过时限，尚未开始执行。可稍后准备新重试。',
+  BUDGET_EXCEEDED: '本次预算已耗尽，未继续调用。可缩小范围后准备新重试。',
+}
 function invalidate() {
   generation++
   source.value = null
   steps.value = []
   stepCursor.value = null
   message.value = ''
+  stopping.value = false
+  cancelPending.value = false
   dialog.value?.close()
 }
 watch(
@@ -149,7 +189,11 @@ function locator(value: unknown) {
     <div class="inline">
       <h2>运行结果</h2>
       <span class="badge">{{
-        status[snapshot?.status || ''] || '读取中'
+        snapshot &&
+        !terminal(snapshot.status) &&
+        (snapshot.cancelRequested || cancelPending)
+          ? '正在停止'
+          : status[snapshot?.status || ''] || '读取中'
       }}</span>
     </div>
     <p class="small muted" role="status">{{ connection }}</p>
@@ -160,8 +204,36 @@ function locator(value: unknown) {
         {{ snapshot.configVersion.versionNumber }} 版
       </p>
       <p>{{ snapshot.inputSummary }}</p>
+      <p v-if="snapshot.retryOfRunId" class="small muted">
+        重试自运行 {{ snapshot.retryOfRunId }}，本次使用重新校验后的配置与预算。
+      </p>
+      <div v-if="editable" class="actions">
+        <button
+          v-if="!terminal(snapshot.status)"
+          :disabled="stopping || snapshot.cancelRequested || cancelPending"
+          @click="cancel"
+        >
+          {{
+            snapshot.cancelRequested || cancelPending
+              ? '正在停止…'
+              : stopping
+                ? '正在请求停止…'
+                : '停止运行'
+          }}
+        </button>
+        <button
+          v-else-if="snapshot.status !== 'succeeded'"
+          @click="emit('retry', snapshot)"
+        >
+          准备重试
+        </button>
+      </div>
       <p v-if="snapshot.errorCode" class="error">
-        {{ snapshot.errorCode }} · 请检查资料与模型配置，当前运行已保留。
+        {{
+          failureReason[snapshot.errorCode] ||
+          '请检查资料、权限与模型配置，当前运行已保留。'
+        }}
+        <span class="small">（{{ snapshot.errorCode }}）</span>
       </p>
       <template
         v-if="

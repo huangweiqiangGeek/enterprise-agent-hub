@@ -11,6 +11,7 @@ type Pending = {
   question: string
   knowledgeBaseIds: string[]
   documentIds: string[]
+  retryOfRunId?: string
 }
 const props = defineProps<{ org: string; conversationId: string }>()
 const { $api } = useNuxtApp()
@@ -72,6 +73,32 @@ const busy = ref(false),
   message = ref(''),
   pending = ref<Pending | null>(null)
 const interactive = ref(false)
+const retryOfRunId = ref<string | undefined>()
+async function prepareRetry(value: S['RunSnapshot']) {
+  if (activeRun.value || busy.value || pending.value) return
+  const n = epoch
+  await chooseAgent()
+  if (!current(n) || !taskOptions.value) return
+  question.value = value.input.question
+  kbIds.value = value.input.knowledgeBaseIds.filter((id) =>
+    taskOptions.value?.knowledgeBases.some((k) => k.id === id),
+  )
+  await nextTick()
+  documentIds.value = (value.input.documentIds || []).filter((id) =>
+    visibleDocuments.value.some((d) => d.id === id),
+  )
+  retryOfRunId.value = value.id
+  message.value =
+    '已载入原问题与仍可用范围。请核对资料后创建新重试，原运行保持不变。'
+  if (
+    kbIds.value.length !== value.input.knowledgeBaseIds.length ||
+    documentIds.value.length !== (value.input.documentIds || []).length
+  ) {
+    kbIds.value = []
+    documentIds.value = []
+    message.value = '原范围已发生变化，请重新选择资料；新重试仍关联原运行。'
+  }
+}
 const storageKey = `eah:submission:${identityKey}:${props.conversationId || 'new'}`
 let epoch = 0,
   scopeEpoch = 0,
@@ -226,6 +253,7 @@ async function submit() {
       question: question.value.trim(),
       knowledgeBaseIds: [...kbIds.value],
       documentIds: [...documentIds.value],
+      retryOfRunId: retryOfRunId.value,
     })
     await reconcile()
   } catch {
@@ -281,6 +309,7 @@ async function reconcile() {
               knowledgeBaseIds: request.knowledgeBaseIds,
               documentIds: request.documentIds,
             },
+            retryOfRunId: request.retryOfRunId,
           },
         },
       ))
@@ -288,6 +317,7 @@ async function reconcile() {
     localStorage.removeItem(storageKey)
     pending.value = null
     question.value = ''
+    retryOfRunId.value = undefined
     selectedRun.value = accepted.runId
     activeRun.value = terminal(accepted.status) ? '' : accepted.runId
     if (props.conversationId !== request.conversationId)
@@ -376,6 +406,8 @@ onMounted(() => {
         question: raw.question,
         knowledgeBaseIds: raw.knowledgeBaseIds,
         documentIds: raw.documentIds,
+        retryOfRunId:
+          typeof raw.retryOfRunId === 'string' ? raw.retryOfRunId : undefined,
       }
       question.value = raw.question
       agentId.value = raw.agentId
@@ -458,10 +490,23 @@ onUnmounted(() => {
           :key="selectedRun"
           :org="org"
           :run-id="selectedRun"
+          editable
           @settled="updateConversation"
+          @retry="prepareRetry"
         />
         <form class="panel" @submit.prevent="submit">
           <h2>{{ conversationId ? '继续追问' : '开始文档问答' }}</h2>
+          <p v-if="retryOfRunId" class="notice">
+            将创建关联
+            {{ retryOfRunId }} 的新运行，使用当前已保存配置，重新计算预算。
+            <button
+              type="button"
+              :disabled="busy || Boolean(pending)"
+              @click="retryOfRunId = undefined"
+            >
+              改为普通追问
+            </button>
+          </p>
           <label
             >任务类型<select disabled>
               <option>文档问答</option>
@@ -567,10 +612,10 @@ onUnmounted(() => {
               !question.trim()
             "
           >
-            {{ busy ? '正在接受…' : '发送问题' }}
+            {{ busy ? '正在接受…' : retryOfRunId ? '创建新重试' : '发送问题' }}
           </button>
           <p class="small muted">
-            关闭页面不会取消后台任务。停止与失败重试功能将在后续阶段开放。
+            关闭页面不会取消后台任务。停止以服务端终态为准；失败、取消或超时后可准备新重试。
           </p>
         </form>
       </div>

@@ -380,3 +380,91 @@ test('admin audit is read only; revoked member loses displayed result and stream
     await context.close()
   }
 })
+
+test('cancel response loss, offline refresh and explicit linked retry', async ({
+  page,
+  context,
+}) => {
+  const { org, headers, agent } = await prepare(page)
+  await page.goto(`/o/${org}/chat`)
+  await page.getByLabel('Agent', { exact: true }).selectOption(agent)
+  await page.getByLabel('问题', { exact: true }).fill('发布停止与重试')
+  await page.getByRole('button', { name: '发送问题', exact: true }).click()
+  await expect(page.getByTestId('draft')).toContainText('评审', {
+    timeout: 15000,
+  })
+  let cancelledId = ''
+  await page.route('**/api/v1/runs/*/cancel', async (route) => {
+    const id = route.request().url().split('/').at(-2) || ''
+    const response = await route.fetch()
+    expect([200, 202]).toContain(response.status())
+    await route.abort('failed')
+    cancelledId = id
+  })
+  await page.getByRole('button', { name: '停止运行', exact: true }).click()
+  await expect.poll(() => cancelledId).not.toBe('')
+  await page.unroute('**/api/v1/runs/*/cancel')
+  await context.setOffline(true)
+  await page.waitForTimeout(6000)
+  await context.setOffline(false)
+  await page.reload()
+  await expect(page.getByLabel('运行结果')).toContainText('已取消', {
+    timeout: 15000,
+  })
+  await expect(page.getByTestId('final-answer')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '下载 Markdown' })).toHaveCount(
+    0,
+  )
+  expect(
+    (
+      await page.request.post(`/api/v1/runs/${cancelledId}/cancel`, { headers })
+    ).status(),
+  ).toBe(200)
+  const conv = new URL(page.url()).pathname.split('/').at(-1)
+  const before = (
+    await (
+      await page.request.get(`/api/v1/conversations/${conv}/messages`, {
+        headers,
+      })
+    ).json()
+  ).data.items
+  expect(
+    before.filter((m: { role: string }) => m.role === 'user'),
+  ).toHaveLength(1)
+  await page.getByRole('button', { name: '准备重试', exact: true }).click()
+  await expect(page.getByLabel('问题', { exact: true })).toHaveValue(
+    '发布停止与重试',
+  )
+  await expect(
+    page.getByText(`将创建关联 ${cancelledId}`, { exact: false }),
+  ).toBeVisible()
+  const accepted = page.waitForResponse(
+    (r) =>
+      r.request().method() === 'POST' &&
+      r.url().endsWith('/runs') &&
+      r.status() === 202,
+  )
+  await page.getByRole('button', { name: '创建新重试', exact: true }).dblclick()
+  const newId = (await (await accepted).json()).data.runId
+  expect(newId).not.toBe(cancelledId)
+  await expect(page.getByLabel('运行结果')).toContainText(
+    `重试自运行 ${cancelledId}`,
+  )
+  await expect(page.getByTestId('final-answer')).toContainText('回滚', {
+    timeout: 20000,
+  })
+  const retried = (
+    await (await page.request.get(`/api/v1/runs/${newId}`, { headers })).json()
+  ).data
+  expect(retried.retryOfRunId).toBe(cancelledId)
+  const after = (
+    await (
+      await page.request.get(`/api/v1/conversations/${conv}/messages`, {
+        headers,
+      })
+    ).json()
+  ).data.items
+  expect(after.filter((m: { role: string }) => m.role === 'user')).toHaveLength(
+    2,
+  )
+})

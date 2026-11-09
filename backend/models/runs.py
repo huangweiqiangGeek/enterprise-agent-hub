@@ -43,7 +43,7 @@ class Run(IdentityRow, Base):
     lease_owner: Mapped[str | None] = mapped_column(Text)
     retry_of_run_id: Mapped[UUID | None]
     error_code: Mapped[str | None] = mapped_column(Text)
-    graph_version: Mapped[str] = mapped_column(Text, default="qa-v1")
+    graph_version: Mapped[str] = mapped_column(Text, default="qa-v2")
 
 
 class Message(IdentityRow, Base):

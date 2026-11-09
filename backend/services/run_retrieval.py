@@ -81,8 +81,11 @@ class RunRetrieval(RetrievalService):
         try:
             yield
             usage.status = "succeeded"
+        except asyncio.CancelledError:
+            usage.status = "outcome_unknown"
+            raise
         finally:
-            if usage.status != "succeeded":
+            if usage.status not in {"succeeded", "outcome_unknown"}:
                 usage.status = "failed"
             await asyncio.shield(
                 self.state.settle(

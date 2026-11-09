@@ -421,7 +421,11 @@ def test_revocation_and_reconcile(setup: Setup, database_url: str, change: str) 
             )
     if change == "lease":
         client.portal.call(reconcile, state.engine, settings)
-        assert snapshot(setup, run_id)["errorCode"] == "RUN_INTERRUPTED"
+        assert snapshot(setup, run_id)["status"] == "running"
+        with pytest.raises(AppError):
+            client.portal.call(state.check)
+        execute(setup, run_id, QAProvider())
+        assert snapshot(setup, run_id)["status"] == "succeeded"
     elif change != "source":
         with pytest.raises(AppError) as exc:
             client.portal.call(state.check)

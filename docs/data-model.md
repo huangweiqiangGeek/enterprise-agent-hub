@@ -125,7 +125,9 @@ input_snapshot 结构由 contracts 的任务 union 定义；config_snapshot 包�
 | idempotency_keys | organization_id nullable、actor_id、operation、resource_id nullable、key、request_digest、response_status、response_data、target_id、created_at；作用域组合使用 NULLS NOT DISTINCT 唯一约束 | 接受操作与键同事务；账号级组织创建不依赖待创建组织 ID，空组织/资源也必须防重 |
 | audit_entries | organization_id、actor_id、action、target_type、target_id、before_summary、after_summary、request_id、occurred_at、outcome | 资源管理及授权变更追溯；摘要不含密码/凭据/完整资料 |
 
-checkpoint 表由选定 LangGraph PostgreSQL 适配器创建，不在业务 ORM 复制。thread_id 使用 `organizationId:conversationId:runId`，约 110 字符；调用者不能指定别人的 thread_id。每个 run 恢复使用原 ID，后续对话轮次使用新 run 的 thread；历史消息按当前权限从业务表装入。
+checkpoint 表由选定 LangGraph PostgreSQL 适配器创建，不在业务 ORM 复制。D10 qa-v2 的 thread_id 使用 `organizationId:conversationId:runId:g{leaseGeneration}`，小于255字符；调用者不能指定 thread_id。业务恢复保持原 run ID，每次 generation 使用独立线程，避免旧进程迟到 checkpoint 污染新执行。恢复依据成功 step/证据和内部候选块重建图输入，保留旧 checkpoint；历史消息按首次固化的ID及当前权限从业务表装入。D10无新增迁移，复用0007/0008表；旧qa-v1非终态按不兼容图明确中断，不删除历史。
+
+D10成功工具step与run_sources在同事务保存。成功model step的output_summary内部 `_blocks` 保存完整校验候选，仅供恢复，不由公开steps返回。lease_generation首次为1，最多恢复至3；回收时先递增并清lease_owner，再投递，领取不再次递增。取消/终态共用组织→run锁；终态清owner/lease，未完成usage保留outcome_unknown与预留估算。迟到usage只可结算原usage ID，不可发布业务内容或终态。
 
 ## 关键事务
 
