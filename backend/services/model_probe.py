@@ -60,6 +60,7 @@ class Attempt:
     billed_units: dict[str, int] = field(default_factory=dict)
     duration_ms: int = 0
     status: str = "pending"
+    provider_request_id: str | None = None
 
     def dto(self) -> TestUsage:
         return TestUsage(
@@ -145,6 +146,7 @@ class ModelProbe:
         tool_stop: bool = False,
     ) -> Any:
         async with client.stream("POST", path, json=payload) as response:
+            attempt.provider_request_id = response.headers.get("x-request-id")
             if response.status_code in {401, 403}:
                 raise ProbeFailure("MODEL_AUTH_FAILED")
             if response.status_code == 429:
@@ -202,7 +204,12 @@ class ModelProbe:
                 body.extend(block)
                 if len(body) > 2 * 1024 * 1024:
                     raise ProbeFailure("MODEL_RESPONSE_INVALID")
-            return json.loads(body)
+            value = json.loads(body)
+            if isinstance(value, dict):
+                request_id = value.get("request_id") or value.get("id")
+                if isinstance(request_id, str):
+                    attempt.provider_request_id = request_id
+            return value
 
     async def test(
         self,

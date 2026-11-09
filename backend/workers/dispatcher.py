@@ -11,6 +11,7 @@ from backend.runtime import run_async
 from backend.services.ingestion import Ingestion
 from backend.services.storage import Storage
 from backend.workers.outbox import Outbox
+from backend.workers.runs import reconcile as reconcile_runs
 
 
 async def main() -> None:
@@ -24,6 +25,7 @@ async def main() -> None:
         while True:
             try:
                 await worker.reconcile()
+                await reconcile_runs(engine, settings)
                 await outbox.dispatch()
                 if monotonic() >= cleanup_at:
                     page = await outbox.clean_orphans(cursor)

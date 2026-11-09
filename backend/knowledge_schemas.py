@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pydantic import Field, StringConstraints
 
+from backend.run_schemas import ConversationView, RunAccepted
 from backend.schemas import DTO, Name, Revision
 
 DocumentStatus = Literal["queued", "processing", "ready", "failed"]
@@ -67,6 +68,8 @@ class AcceptanceDTO(DTO):
     status: Literal["accepted", "absent"]
     target_id: UUID | None = None
     document: DocumentDTO | None = None
+    run: RunAccepted | None = None
+    conversation: ConversationView | None = None
 
 
 class UploadPolicy(DTO):

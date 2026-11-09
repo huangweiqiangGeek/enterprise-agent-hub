@@ -191,8 +191,8 @@ def test_hybrid_scope_metering_and_plan(setup: Setup, database_url: str) -> None
         assert profile_row is not None
         profile, dimension = profile_row
         assert db.execute(
-            "SELECT to_regclass('app.runs'),to_regclass('app.conversations')"
-        ).fetchone() == (None, None)
+            "SELECT (SELECT count(*) FROM app.runs),(SELECT count(*) FROM app.conversations)"
+        ).fetchone() == (0, 0)
 
     async def explain() -> Any:
         async with async_sessionmaker(application(client).state.engine)() as db:

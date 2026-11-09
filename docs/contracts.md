@@ -181,7 +181,9 @@ AP61 返回 absent 后如仍需提交，必须使用原键和相同内容，不�
 
 D04 实现细节：AP26 每次只收一个 `file` part，最多 180 秒，扩展名/MIME/真实内容与实际字节数均受限；空 MIME/octet-stream 仅在扩展名受支持且内容校验通过时兼容。AP26 返回 202 Document；AP27 返回 `{document, attempts}`，管理员可见最近 20 次尝试。AP30 original 返回 attachment 二进制并在存储读取后再次鉴权，D05 text 返回当前已就绪文本，未就绪返回 409 DOCUMENT_NOT_READY。删除独立设置 deletedAt，普通列表/详情/下载返回不可见，原发起者 AP61 仍可核对已接受且已撤回的记录。
 
-详情补充接口：`GET /knowledge-bases/{id}` 返回 KnowledgeBase；`GET /knowledge-bases/{id}/upload-policy` 返回 `{maxBytes,extensions,embeddingReady,maxDocuments}`，均要求当前组织成员身份。AP61 当前只接受 `operation=document.upload` 且 resourceId 为必填知识库 ID；其他操作随对应任务扩展，不返回跨发起者记录。拒绝码包括 FILE_EMPTY、FILE_TOO_LARGE、FILE_TYPE_UNSUPPORTED、UPLOAD_INCOMPLETE、IDEMPOTENCY_CONFLICT、EMBEDDING_NOT_CONFIGURED、DOCUMENT_LIMIT_REACHED；错误仍使用通用 JSON 外壳。
+详情补充接口：`GET /knowledge-bases/{id}` 返回 KnowledgeBase；`GET /knowledge-bases/{id}/upload-policy` 返回 `{maxBytes,extensions,embeddingReady,maxDocuments}`，均要求当前组织成员身份。AP61 接受 `operation=document.upload`（resourceId 为必填知识库 ID）、`conversation.create`（不传 resourceId）和 `run.create`（resourceId 为本人会话 ID）；按操作返回 document/conversation/run 接受快照，不返回跨发起者记录。拒绝码包括 FILE_EMPTY、FILE_TOO_LARGE、FILE_TYPE_UNSUPPORTED、UPLOAD_INCOMPLETE、IDEMPOTENCY_CONFLICT、EMBEDDING_NOT_CONFIGURED、DOCUMENT_LIMIT_REACHED；错误仍使用通用 JSON 外壳。
+
+D08 已实现 AP49/AP53/AP54/AP58 和 AP61 运行接受核对。AP53 仅支持 qa，knowledgeBaseIds 最多10个、documentIds最多100个且不重复；agentId 必须等于会话固定 Agent。AP58 cursor 为已返回 sequence，默认20、最大100；步骤含 run 专属用量与提供方请求 ID。AP54 删除文档时保留历史答案并标 partially_unavailable，来源元信息不返回 excerpt。eventsUrl 为 D09 预留，事件读取接口尚未实现。D08 的 message.delta 额外含 `reset`：结构修复开始时 true 表示替换草稿，禁止把两次候选拼接；最终成功仅从 AP54 读取。错误补充 MODEL_REQUEST_INVALID、MODEL_STREAM_INTERRUPTED、CITATION_INVALID、RESULT_INVALID、REQUIRED_SOURCE_UNAVAILABLE、PERMISSION_REVOKED；认证、无效请求及部分流中断不自动重试。
 
 ## 请求与响应 DTO
 

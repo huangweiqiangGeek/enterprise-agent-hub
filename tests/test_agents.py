@@ -115,7 +115,7 @@ def test_draft_templates_permissions_and_idempotency(setup: Setup, database_url:
         assert db.execute(
             "SELECT count(*) FROM app.agent_versions WHERE agent_id=%s", (agent["id"],)
         ).fetchone() == (1,)
-        assert db.execute("SELECT to_regclass('app.runs')").fetchone() == (None,)
+        assert db.execute("SELECT count(*) FROM app.runs").fetchone() == (0,)
 
 
 def test_versions_status_history_and_current_kb_binding(setup: Setup, database_url: str) -> None:

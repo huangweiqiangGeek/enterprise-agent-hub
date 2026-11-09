@@ -82,6 +82,23 @@ services:
     security_opt: ['no-new-privileges:true']
     stop_grace_period: 30s
 
+  runs:
+    profiles: ['runs']
+    image: eah-worker:local
+    command: ['python', '-m', 'backend.workers.runs']
+    environment: *worker-environment
+    depends_on: *worker-dependencies
+    dns: ['${EAH_WORKER_DNS:-223.5.5.5}']
+    init: true
+    read_only: true
+    tmpfs: ['/tmp:size=256m,mode=1777']
+    mem_limit: 2g
+    cpus: 2
+    pids_limit: 96
+    cap_drop: ['ALL']
+    security_opt: ['no-new-privileges:true']
+    stop_grace_period: 30s
+
   dispatcher:
     profiles: ['ingestion']
     image: eah-worker:local

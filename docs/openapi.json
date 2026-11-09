@@ -4285,7 +4285,11 @@
             "in": "query",
             "required": true,
             "schema": {
-              "const": "document.upload",
+              "enum": [
+                "document.upload",
+                "conversation.create",
+                "run.create"
+              ],
               "type": "string",
               "title": "Operation"
             }
@@ -4293,10 +4297,17 @@
           {
             "name": "resourceId",
             "in": "query",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
-              "format": "uuid",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "Resourceid"
             }
           },
@@ -5253,6 +5264,515 @@
         }
       }
     },
+    "/api/v1/conversations": {
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Conversation",
+        "operationId": "conversation_api_v1_conversations_post",
+        "parameters": [
+          {
+            "name": "X-Organization-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "X-Organization-Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[\\x21-\\x7e]+$",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_ConversationView_"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/conversations/{conversation_id}/runs": {
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Accept",
+        "operationId": "accept_api_v1_conversations__conversation_id__runs_post",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Conversation Id"
+            }
+          },
+          {
+            "name": "X-Organization-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "X-Organization-Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[\\x21-\\x7e]+$",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_RunAccepted_"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Snapshot",
+        "operationId": "snapshot_api_v1_runs__run_id__get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "X-Organization-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "X-Organization-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_RunSnapshot_"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/steps": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Steps",
+        "operationId": "steps_api_v1_runs__run_id__steps_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "X-Organization-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "X-Organization-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Page_StepSummary__"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
+      }
+    },
     "/api/v1/health/live": {
       "get": {
         "tags": [
@@ -5334,6 +5854,26 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/DocumentDTO"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunAccepted"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "conversation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConversationView"
               },
               {
                 "type": "null"
@@ -5999,6 +6539,110 @@
         ],
         "title": "ChunkPreview"
       },
+      "Claim": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Text"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "fact",
+              "inference",
+              "suggestion",
+              "unknown"
+            ],
+            "title": "Kind"
+          },
+          "sourceIds": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 80,
+            "title": "Sourceids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "text",
+          "kind"
+        ],
+        "title": "Claim"
+      },
+      "ConversationCreate": {
+        "properties": {
+          "agentId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Agentid"
+          },
+          "taskType": {
+            "type": "string",
+            "const": "qa",
+            "title": "Tasktype"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Title",
+            "default": "文档问答"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "agentId",
+          "taskType"
+        ],
+        "title": "ConversationCreate"
+      },
+      "ConversationView": {
+        "properties": {
+          "agentId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Agentid"
+          },
+          "taskType": {
+            "type": "string",
+            "const": "qa",
+            "title": "Tasktype"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Title",
+            "default": "文档问答"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updatedat"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "agentId",
+          "taskType",
+          "id",
+          "updatedAt"
+        ],
+        "title": "ConversationView"
+      },
       "DocumentDTO": {
         "properties": {
           "id": {
@@ -6269,6 +6913,24 @@
         ],
         "title": "Envelope[ChunkPreview]"
       },
+      "Envelope_ConversationView_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ConversationView"
+          },
+          "requestId": {
+            "type": "string",
+            "title": "Requestid"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "data",
+          "requestId"
+        ],
+        "title": "Envelope[ConversationView]"
+      },
       "Envelope_DocumentDTO_": {
         "properties": {
           "data": {
@@ -6503,6 +7165,24 @@
         ],
         "title": "Envelope[Page[OrganizationDTO]]"
       },
+      "Envelope_Page_StepSummary__": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Page_StepSummary_"
+          },
+          "requestId": {
+            "type": "string",
+            "title": "Requestid"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "data",
+          "requestId"
+        ],
+        "title": "Envelope[Page[StepSummary]]"
+      },
       "Envelope_RetrievalResult_": {
         "properties": {
           "data": {
@@ -6520,6 +7200,42 @@
           "requestId"
         ],
         "title": "Envelope[RetrievalResult]"
+      },
+      "Envelope_RunAccepted_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RunAccepted"
+          },
+          "requestId": {
+            "type": "string",
+            "title": "Requestid"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "data",
+          "requestId"
+        ],
+        "title": "Envelope[RunAccepted]"
+      },
+      "Envelope_RunSnapshot_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RunSnapshot"
+          },
+          "requestId": {
+            "type": "string",
+            "title": "Requestid"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "data",
+          "requestId"
+        ],
+        "title": "Envelope[RunSnapshot]"
       },
       "Envelope_SessionDTO_": {
         "properties": {
@@ -7510,6 +8226,34 @@
         ],
         "title": "Page[OrganizationDTO]"
       },
+      "Page_StepSummary_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StepSummary"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nextcursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "Page[StepSummary]"
+      },
       "PasswordInput": {
         "properties": {
           "currentPassword": {
@@ -7554,6 +8298,86 @@
           "expectedRevision"
         ],
         "title": "ProfileInput"
+      },
+      "QAInput": {
+        "properties": {
+          "question": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Question"
+          },
+          "knowledgeBaseIds": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Knowledgebaseids"
+          },
+          "documentIds": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Documentids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "question",
+          "knowledgeBaseIds"
+        ],
+        "title": "QAInput"
+      },
+      "QAResult": {
+        "properties": {
+          "answer": {
+            "type": "string",
+            "title": "Answer"
+          },
+          "claims": {
+            "items": {
+              "$ref": "#/components/schemas/Claim"
+            },
+            "type": "array",
+            "title": "Claims"
+          },
+          "missingInformation": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missinginformation"
+          },
+          "conflicts": {
+            "items": {
+              "$ref": "#/components/schemas/Claim"
+            },
+            "type": "array",
+            "title": "Conflicts"
+          },
+          "coverage": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Coverage"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "answer",
+          "claims",
+          "missingInformation",
+          "conflicts",
+          "coverage"
+        ],
+        "title": "QAResult"
       },
       "ReadinessIssue": {
         "properties": {
@@ -7837,6 +8661,256 @@
         ],
         "title": "RoleInput"
       },
+      "RunAccepted": {
+        "properties": {
+          "runId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Runid"
+          },
+          "conversationId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Conversationid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "timed_out"
+            ],
+            "title": "Status"
+          },
+          "eventsUrl": {
+            "type": "string",
+            "title": "Eventsurl"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Createdat"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "runId",
+          "conversationId",
+          "status",
+          "eventsUrl",
+          "createdAt"
+        ],
+        "title": "RunAccepted"
+      },
+      "RunCreate": {
+        "properties": {
+          "agentId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Agentid"
+          },
+          "input": {
+            "$ref": "#/components/schemas/QAInput"
+          },
+          "retryOfRunId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retryofrunid"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "agentId",
+          "input"
+        ],
+        "title": "RunCreate"
+      },
+      "RunSnapshot": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "conversationId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Conversationid"
+          },
+          "taskType": {
+            "type": "string",
+            "const": "qa",
+            "title": "Tasktype",
+            "default": "qa"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "timed_out"
+            ],
+            "title": "Status"
+          },
+          "cancelRequested": {
+            "type": "boolean",
+            "title": "Cancelrequested"
+          },
+          "inputSummary": {
+            "type": "string",
+            "title": "Inputsummary"
+          },
+          "configVersion": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Configversion"
+          },
+          "budgetSnapshot": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Budgetsnapshot"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Createdat"
+          },
+          "startedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startedat"
+          },
+          "finishedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finishedat"
+          },
+          "lastSeq": {
+            "type": "integer",
+            "title": "Lastseq"
+          },
+          "partialMessage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Partialmessage"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QAResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "citations": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Citations"
+          },
+          "coverage": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Coverage"
+          },
+          "resultVisibility": {
+            "type": "string",
+            "enum": [
+              "visible",
+              "partially_unavailable",
+              "withheld"
+            ],
+            "title": "Resultvisibility"
+          },
+          "errorCode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Errorcode"
+          },
+          "retryOfRunId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retryofrunid"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "conversationId",
+          "status",
+          "cancelRequested",
+          "inputSummary",
+          "configVersion",
+          "budgetSnapshot",
+          "createdAt",
+          "startedAt",
+          "finishedAt",
+          "lastSeq",
+          "partialMessage",
+          "result",
+          "citations",
+          "coverage",
+          "resultVisibility",
+          "errorCode",
+          "retryOfRunId"
+        ],
+        "title": "RunSnapshot"
+      },
       "SavedModelTest": {
         "properties": {
           "connectionId": {
@@ -7923,6 +8997,118 @@
           "expiresAt"
         ],
         "title": "SessionDTO"
+      },
+      "StepSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "logicalStepKey": {
+            "type": "string",
+            "title": "Logicalstepkey"
+          },
+          "attempt": {
+            "type": "integer",
+            "title": "Attempt"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Startedat"
+          },
+          "finishedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finishedat"
+          },
+          "durationMs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Durationms"
+          },
+          "publicInputSummary": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Publicinputsummary"
+          },
+          "publicOutputSummary": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Publicoutputsummary"
+          },
+          "sourceIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Sourceids"
+          },
+          "usage": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Usage"
+          },
+          "errorCode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Errorcode"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "logicalStepKey",
+          "attempt",
+          "kind",
+          "name",
+          "status",
+          "startedAt",
+          "finishedAt",
+          "durationMs",
+          "publicInputSummary",
+          "publicOutputSummary",
+          "sourceIds",
+          "usage",
+          "errorCode"
+        ],
+        "title": "StepSummary"
       },
       "TestResult": {
         "properties": {

@@ -110,7 +110,7 @@ def test_real_bilingual_retrieval(database_url: str) -> None:
                     "SELECT count(*) FROM app.usage_entries "
                     "WHERE operation_kind='search_preview' AND status='succeeded'"
                 ).fetchone() == (4,)
-                assert db.execute("SELECT to_regclass('app.runs')").fetchone() == (None,)
+                assert db.execute("SELECT count(*) FROM app.runs").fetchone() == (0,)
     finally:
         for obj in storage.list_objects_v2(Bucket=settings.s3_bucket).get("Contents", []):
             storage.delete_object(Bucket=settings.s3_bucket, Key=obj["Key"])

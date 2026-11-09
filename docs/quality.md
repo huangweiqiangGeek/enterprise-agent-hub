@@ -14,6 +14,8 @@ D04 上传验收需真实 PostgreSQL、Redis 与本地 S3 协议服务；覆盖�
 
 ## 测试分层
 
+D08 使用 `tests/test_runs.py`、`test_run_migration.py` 验真实 PG/S3 的接受/并发/计量/终态与空库迁移，受控提供方覆盖有来源、资料不足、冲突、追问四例及伪引用/断流/撤权。`EAH_RUN_REAL_QA=1` 单列真实百炼、Redis 重复投递、Linux run worker 与 PostgreSQL checkpoint；临时资源隔离并清理。它证明一个固定问答样例的端到端执行，不代替 D19 的广泛语义评测，也不代表 D09 页面或完整 SSE 恢复。命令与证据见 [D08 记录](D08-持久运行与文档问答实施记录.md)。
+
 D06 的 `test_retrieval.py` 使用真实PG/S3验证物化授权CTE、异维组织隔离、当前attempt、重排异常、用量和撤权竞态；`tests/fixtures/retrieval.json`固定中英样例。`EAH_RUN_REAL_RETRIEVAL=1`单列真实百炼Embedding/Rerank测试，默认跳过；与受控协议、浏览器试查状态验收分开。命令、样本量和限制见[D06记录](D06-混合检索实施记录.md)。
 
 D05 的 `test_document_processing.py`、`test_ingestion.py`、`test_ingestion_migration.py` 覆盖解析失败/定位、真实PG/S3发布、后续批次失败不发布、越权/维度外键、租约/删除、幂等重试和空库降级/重升。`EAH_RUN_LINUX_INGESTION=1` 单独启用真实百炼与 Linux Celery 的 kill/到期/重启验收，需 Docker 镜像和专用临时数据库权限；使用少量真实模型调用，不把默认 skip 当通过。浏览器 fixture 另加 `EAH_BROWSER_INGESTION=1` 可验证预览与失败重试，它不替代 Linux/真实模型验收。证据与资源清理见 [D05 记录](D05-文档入库实施记录.md)。

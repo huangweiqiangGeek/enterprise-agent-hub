@@ -25,6 +25,7 @@ from backend.services.errors import AppError
 from backend.services.knowledge import KnowledgeService
 from backend.services.model_settings import SessionProof
 from backend.services.retrieval import RetrievalService
+from backend.services.runs import RunService
 from backend.services.upload import Upload
 
 router = APIRouter(
@@ -233,9 +234,17 @@ async def acceptance(
     key: str,
     org_id: OrgId,
     service: Service,
-    operation: Literal["document.upload"],
-    resource_id: Annotated[UUID, Query(alias="resourceId")],
+    operation: Literal["document.upload", "conversation.create", "run.create"],
+    resource_id: Annotated[UUID | None, Query(alias="resourceId")] = None,
 ) -> Envelope[AcceptanceDTO]:
+    if operation != "document.upload":
+        runs = RunService(service.engine, service.settings, service.request_id, service.proof)
+        return Envelope(
+            data=await runs.acceptance(org_id, operation, resource_id, key),
+            request_id=service.request_id,
+        )
+    if resource_id is None:
+        raise AppError(422, "RESOURCE_SCOPE_INVALID", "请指定知识库。")
     return Envelope(
         data=await service.acceptance(org_id, resource_id, key), request_id=service.request_id
     )

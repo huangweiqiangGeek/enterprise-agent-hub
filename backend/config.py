@@ -37,3 +37,4 @@ class Settings(BaseSettings):
     s3_prefix: str = "eah/uploads/"
     max_documents_per_organization: int = 1000
     ingestion_queue: str = "eah.ingestion"
+    run_queue: str = "eah.runs"

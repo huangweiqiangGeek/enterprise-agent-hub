@@ -2,7 +2,7 @@
 
 面向研发团队的 AI Agent 工作平台，整合团队知识库、授权检索、Agent 配置与可观测的任务执行。
 
-当前已实现 D01～D07：工程基础、身份/组织/权限、模型配置/限制、可靠文件接受、文档解析入库、授权混合检索，以及 Agent 模板、配置、不可变版本、复制与启停。支持真实百炼 Embedding/Rerank；检索试查显示证据与覆盖限制，不生成聊天答案。Agent 执行与试运行尚未开放，外部 S3 与 GitHub MCP 尚未验证。证据见 [D07 记录](docs/D07-Agent配置实施记录.md)、[D06 记录](docs/D06-混合检索实施记录.md)、[D05 记录](docs/D05-文档入库实施记录.md)和[百炼补充验收](docs/D03-D04-百炼补充验收.md)；产品范围见 [PRD](docs/PRD.md)。
+当前已实现 D01～D08：工程基础、身份/组织/权限、模型配置/限制、可靠文件接受、文档解析入库、授权混合检索、Agent 配置与不可变版本，以及持久化文档问答执行。D08 提供接受任务、执行快照与步骤 API，真实百炼 Chat/Embedding/Rerank 和 Linux 队列消费已单列验收；聊天页面、SSE 订阅与来源抽屉属于 D09，尚未开放。外部 S3 与 GitHub MCP 尚未验证。证据见 [D08 记录](docs/D08-持久运行与文档问答实施记录.md)、[D07 记录](docs/D07-Agent配置实施记录.md)、[D06 记录](docs/D06-混合检索实施记录.md)；产品范围见 [PRD](docs/PRD.md)。
 
 开发前从 [AGENTS.md](AGENTS.md) 按任务读取 [docs 开发规范](docs/README.md)。
 
@@ -21,10 +21,10 @@ uv run alembic upgrade head
 uv run python -m backend.checkpoints
 uv run --locked python -m scripts.init_storage
 docker compose --profile storage --profile ingestion build ingestion
-docker compose --profile storage --profile ingestion up -d ingestion dispatcher
+docker compose --profile storage --profile ingestion --profile runs up -d ingestion dispatcher runs
 ```
 
-初始化顺序必须是 **依赖健康 → Alembic → checkpoint setup → 存储桶初始化 → ingestion/dispatcher → API/Web**。Alembic 创建 `app`、`checkpoints` schema 和 `vector` 扩展；LangGraph 只管理 `checkpoints` 内的适配器表。checkpoint 和存储桶初始化可以重复执行，未完成 Alembic 时 checkpoint 会拒绝运行。API/worker 启动不会自动改库或建桶。
+初始化顺序必须是 **依赖健康 → Alembic → checkpoint setup → 存储桶初始化 → ingestion/dispatcher/runs → API/Web**。Alembic 创建 `app`、`checkpoints` schema 和 `vector` 扩展；LangGraph 只管理 `checkpoints` 内的适配器表。checkpoint 和存储桶初始化可以重复执行，未完成 Alembic 时 checkpoint 会拒绝运行。API/worker 启动不会自动改库或建桶。
 
 分别在两个根目录终端启动：
 
@@ -52,7 +52,7 @@ docker compose exec redis redis-cli ping
 
 前两项正常返回 200；Redis 返回 `PONG`。`live` 只代表 API 存活；数据库或初始化未就绪时，`ready` 返回 503。即使依赖尚未启动，也可以打开页面查看这个失败状态。
 
-停止 Web/API 用各自终端的 `Ctrl+C`；停止本项目服务用 `docker compose --profile storage --profile ingestion stop`，保留数据库和文件卷。
+停止 Web/API 用各自终端的 `Ctrl+C`；停止本项目服务用 `docker compose --profile storage --profile ingestion --profile runs stop`，保留数据库和文件卷。
 
 ## 知识库与上传
 
@@ -84,6 +84,29 @@ uv run --locked pytest tests/test_linux_ingestion.py -q -s
 # 浏览器解析/预览/重试验收复用下方 browser_smoke，另设置：
 $env:EAH_BROWSER_INGESTION='1'
 ```
+
+## 持久文档问答 API
+
+D08 先实现后端 T1 问答；聊天页面和 Agent 试运行入口在 D09 接入。需启用且已绑定就绪知识库、`knowledge.search` 和聊天模型的 QA Agent。使用已登录 Cookie、`X-Organization-Id`，写请求另带 `Origin`、`X-CSRF-Token` 与不同操作的 `Idempotency-Key`：
+
+1. `POST /api/v1/conversations`，提交 `{agentId,taskType:"qa",title?}`，返回 201 会话。
+2. `POST /api/v1/conversations/{id}/runs`，提交 `{agentId,input:{question,knowledgeBaseIds,documentIds?}}`，返回 202；接受后即可查询，模型调用在 Linux worker 中执行。
+3. `GET /api/v1/runs/{runId}` 查看排队、运行或终态、部分文本、最终结构及引用；`GET /api/v1/runs/{runId}/steps` 查看各次调用和计量。
+4. 接受响应丢失时，用原键查询 `/api/v1/idempotency-requests/{key}?operation=run.create&resourceId={conversationId}`，或按原键和相同内容重发；同会话同时只接受一个非终态任务。
+
+`eventsUrl` 预留给 D09，当前不提供事件订阅。步骤和事件已入库；无证据可以成功返回资料不足，伪造引用校验失败不会发布成功答案。租约丢失明确失败，未知请求不自动拼接重生成。聊天、Embedding、Rerank 计量分开，未知 usage 保留预留或 unavailable，不冒充零费用。
+
+```powershell
+$env:EAH_TEST_ADMIN_URL='postgresql://eah:eah_dev@127.0.0.1:5432/postgres'
+$env:EAH_TEST_S3_ENDPOINT='http://127.0.0.1:4566'
+uv run --locked pytest tests/test_runs.py tests/test_run_migration.py -q
+# 显式真实调用；需已构建 eah-worker:local，读取已有 EAH_PROBE_API_KEY
+$env:EAH_RUN_REAL_QA='1'
+uv run --locked pytest tests/test_real_qa.py -q -s
+Remove-Item Env:EAH_RUN_REAL_QA
+```
+
+Docker 不在 PATH 时设置 `EAH_DOCKER` 为 CLI 完整路径。上述测试使用临时库、桶、独立队列与容器并清理，避免混入体验数据。`EAH_RUN_QUEUE` 默认 `eah.runs`，专用 Linux worker 并发 4，组织并发/排队额度仍由 PostgreSQL 裁决。迁移 `0007_runs` 只新增运行相关表与约束；降级仅用于空隔离库。详细证据见 [D08 记录](docs/D08-持久运行与文档问答实施记录.md)。
 
 ## 配置与排错
 
@@ -256,7 +279,7 @@ Remove-Item Env:EAH_RUN_REAL_BAILIAN
 5. 完成对话、会话恢复及执行轨迹，跑通跨文档问答演示。
 6. 补齐测试、Docker 启动说明、架构说明和演示材料。
 
-实施工时与依赖以 [D01～D20 开发任务](docs/development-plan.md) 为准；D01～D07 已实现，对应验收证据见各阶段记录。D08 未开始，外部 S3 与 GitHub MCP 仍待对应环境和账号验收。
+实施工时与依赖以 [D01～D20 开发任务](docs/development-plan.md) 为准；D01～D08 已实现，对应验收证据见各阶段记录。下一项为 D09，尚未实施；外部 S3 与 GitHub MCP 仍待对应环境和账号验收。
 
 ## 产品文档
 

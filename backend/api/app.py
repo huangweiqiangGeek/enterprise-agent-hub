@@ -16,6 +16,7 @@ from backend.api.agents import router as agents_router
 from backend.api.identity import router as identity_router
 from backend.api.knowledge import router as knowledge_router
 from backend.api.model_settings import router as settings_router
+from backend.api.runs import router as runs_router
 from backend.config import Settings
 from backend.db import database_ready, make_engine
 from backend.schemas import ErrorData, ErrorResponse
@@ -55,6 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(settings_router)
     app.include_router(knowledge_router)
     app.include_router(agents_router)
+    app.include_router(runs_router)
 
     @app.exception_handler(AppError)
     async def application_error(request: Request, exc: AppError) -> JSONResponse:

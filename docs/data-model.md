@@ -1,6 +1,6 @@
 # 数据模型、事务与生命周期
 
-> 版本 1.0 · 2026-11-07 · D02 六张身份/组织表、D03 五张模型/用量表及 D04 knowledge_bases、documents、document_attempts、outbox_jobs 及 D05 document_chunks 已创建，共十六张 app 表；D05 见 [实施记录](D05-文档入库实施记录.md)，其余仍为设计。对应 [技术方案](technical-design.md)、[PRD](PRD.md)、[D02 记录](D02-身份组织实施记录.md)、[D03 记录](D03-模型配置实施记录.md) 与 [D04 记录](D04-知识库实施记录.md)。
+> 版本 1.1 · 2026-11-09 · D02～D05 基础十六张表、D07 四张 Agent 表及 D08 七张运行表已创建，共二十七张 app 表。GitHub 与后续任务专属字段仍为设计；实际迁移差异见下文。对应 [技术方案](technical-design.md)、[PRD](PRD.md)、[D07记录](D07-Agent配置实施记录.md) 与 [D08记录](D08-持久运行与文档问答实施记录.md)。
 
 ## 目录导航
 
@@ -97,6 +97,8 @@ locator 固定为 PDF 的 pageStart/pageEnd/段落序号，或 TXT/MD 的标题�
 D07迁移`0006_agents`落地上方四张Agent表，共二十张app表。当前版本采用组织+Agent+version三列延迟FK，版本及绑定采用组织复合FK，数据库触发器禁止版本/关联UPDATE或DELETE、禁止修改task_type；API只向新版本插入关联。启停不修改版本。当前版本绑定（含停用Agent）阻止知识库删除；解绑发布新版本后可软删库，历史引用保留。没有Agent物理删除接口。仅新增表，无历史数据回填；降级会删除Agent数据，只用于隔离验收库，主库回滚保留表和数据。
 
 ## 会话与运行
+
+D08 的 `0007_runs` 新增下列七张运行表，连同 D07 后共二十七张 app 表。当前只接受 `qa`，sources 仅文档且 document/attempt/chunk 为必填复合外键；未来 GitHub 扩展字段暂未建。step 的 `name` 承载 `knowledge.search/chat.generate/citation.validate`，另保存 `input_digest`；证据 hash/locator 与同组织同 run 的 citations FK 已落地。唯一活跃会话 run、唯一终态事件由部分唯一索引保护，usage 补充同 run/step 复合外键。业务迁移先于 checkpoint setup；降级删除运行表，仅允许在空隔离库验证，已有执行数据的环境保留表做前向修复。证据见 [D08 记录](D08-持久运行与文档问答实施记录.md)。
 
 | 实体 | 专属字段与类型 | 约束/索引 | 说明 |
 | --- | --- | --- | --- |

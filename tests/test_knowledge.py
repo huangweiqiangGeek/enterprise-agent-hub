@@ -46,6 +46,7 @@ def setup(database_url: str) -> Iterator[tuple[TestClient, Actor, str, Settings]
         s3_endpoint=endpoint,
         s3_bucket=f"eah-test-{uuid4().hex}",
         ingestion_queue=f"eah.test.{uuid4().hex}",
+        run_queue=f"eah.test.runs.{uuid4().hex}",
     )
     app = create_app(settings)
     app.state.storage.client.create_bucket(Bucket=settings.s3_bucket)
@@ -84,6 +85,11 @@ def setup(database_url: str) -> Iterator[tuple[TestClient, Actor, str, Settings]
         app.state.storage.client.delete_bucket(Bucket=settings.s3_bucket)
         with Redis.from_url(settings.redis_url) as broker:
             broker.delete(settings.ingestion_queue, f"_kombu.binding.{settings.ingestion_queue}")
+            broker.delete(settings.run_queue, f"_kombu.binding.{settings.run_queue}")
+            broker.delete(
+                f"_kombu.binding_permanent.{settings.run_queue}",
+                f"_kombu.binding_permanent.{settings.ingestion_queue}",
+            )
 
 
 def send(

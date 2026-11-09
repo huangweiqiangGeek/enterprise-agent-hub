@@ -289,7 +289,13 @@ class IdentityService:
             )
 
     async def replay(
-        self, org_id: UUID | None, operation: str, key: str, payload: dict[str, Any]
+        self,
+        org_id: UUID | None,
+        operation: str,
+        key: str,
+        payload: dict[str, Any],
+        *,
+        resource_id: UUID | None = None,
     ) -> IdempotencyKey | None:
         user = self.require_user()
         record = await self.db.scalar(
@@ -297,7 +303,7 @@ class IdentityService:
                 IdempotencyKey.organization_id == org_id,
                 IdempotencyKey.actor_id == user.id,
                 IdempotencyKey.operation == operation,
-                IdempotencyKey.resource_id.is_(None),
+                IdempotencyKey.resource_id == resource_id,
                 IdempotencyKey.key == key,
             )
         )
@@ -318,6 +324,8 @@ class IdentityService:
         status: int,
         result: DTO,
         target_id: UUID,
+        *,
+        resource_id: UUID | None = None,
     ) -> None:
         self.db.add(
             IdempotencyKey(
@@ -329,6 +337,7 @@ class IdentityService:
                 response_status=status,
                 response_data=result.model_dump(mode="json", by_alias=True),
                 target_id=target_id,
+                resource_id=resource_id,
             )
         )
 

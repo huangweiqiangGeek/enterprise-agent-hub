@@ -15,6 +15,7 @@ from backend.config import Settings
 from backend.db import make_engine
 from backend.models.identity import now
 from backend.models.knowledge import Document, DocumentAttempt, DocumentChunk, OutboxJob
+from backend.models.runs import RunSource
 from backend.runtime import run_async
 from backend.services.storage import Storage
 
@@ -82,7 +83,18 @@ class Outbox:
                 )
             error = None
             try:
-                if job.job_type == "document.ingest":
+                if job.job_type == "run.execute":
+                    await self.storage.call(
+                        partial(
+                            self.broker.send_task,
+                            "eah.run",
+                            kwargs=job.payload,
+                            task_id=str(job.id),
+                            queue=self.settings.run_queue,
+                            retry=False,
+                        )
+                    )
+                elif job.job_type == "document.ingest":
                     if should_publish:
                         await self.storage.call(
                             partial(
@@ -143,6 +155,13 @@ class Outbox:
                             ).all()
                             for chunk in chunks:
                                 chunk.text, chunk.embedding, chunk.lexemes = None, None, ""
+                            for source in await db.scalars(
+                                select(RunSource).where(
+                                    RunSource.organization_id == row.organization_id,
+                                    RunSource.document_id == row.id,
+                                )
+                            ):
+                                source.excerpt = None
                         row.cleanup_status, row.cleanup_error = (
                             ("failed", error) if error else ("done", None)
                         )

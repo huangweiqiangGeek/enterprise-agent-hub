@@ -1,6 +1,6 @@
 # Agent、检索与只读工具执行设计
 
-> 版本 1.0 · 2026-11-06 · 实施设计，尚无可运行 Agent。需求依据：[PRD 三类任务](PRD.md#4-三类核心任务)。通用状态、数值和 API 以 [contracts](contracts.md) 为准。
+> 版本 1.1 · 2026-11-09 · D08 已实现 T1 持久问答图；T2/T3、SSE 页面及完整取消恢复仍按任务分阶段实现。需求依据：[PRD 三类任务](PRD.md#4-三类核心任务)。通用状态、数值和 API 以 [contracts](contracts.md) 为准；实测见 [D08 记录](D08-持久运行与文档问答实施记录.md)。
 
 ## 目录导航
 
@@ -22,6 +22,8 @@
 持久化使用每 run 独立的 PostgreSQL checkpoint thread；业务消息单独保存。官方说明提供 checkpoint、恢复和故障处理能力，但不替代业务事务、租约或幂等：[LangGraph 持久化](https://docs.langchain.com/oss/python/langgraph/persistence)、[checkpointer](https://docs.langchain.com/oss/python/langgraph/checkpointers)、[故障处理](https://docs.langchain.com/oss/python/langgraph/fault-tolerance)。
 
 ## 统一执行图
+
+D08 实现将 G02～G08 收敛为 `context → retrieve → generate → publish` 四个 LangGraph 节点，领取/租约由共享 RunState 裁决。checkpoint 只存 runId/graphVersion/候选块；输入、版本、历史消息 ID、证据与消费从业务表读。每个模型/工具步骤保留输入摘要哈希，模型修复最多两次且重新预留预算。首版 T1 固定检索，不接受模型自选工具；完整重放复用、取消入口和 SSE 恢复留待 D09/D10。丢失租约或未知部分流当前明确失败，不把 checkpoint 存在当成自动恢复已验收。
 
 ```mermaid
 flowchart TD
