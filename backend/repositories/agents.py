@@ -81,11 +81,12 @@ class AgentRepository:
             )
         ).one_or_none()
 
-    async def ready_document(self, ids: list[UUID], profile: UUID) -> bool:
+    async def ready_document(self, ids: list[UUID], profile: UUID, *, minimum: int = 1) -> bool:
         # Current publication only: old/failed attempts cannot make a configuration ready.
-        return bool(
-            await self.db.scalar(
+        documents = list(
+            await self.db.scalars(
                 select(Document.id)
+                .distinct()
                 .join(KnowledgeBase, KnowledgeBase.id == Document.knowledge_base_id)
                 .join(DocumentAttempt, DocumentAttempt.id == Document.current_attempt_id)
                 .join(DocumentChunk, DocumentChunk.attempt_id == DocumentAttempt.id)
@@ -102,6 +103,7 @@ class AgentRepository:
                     DocumentChunk.embedding_profile_id == profile,
                     DocumentChunk.embedding.is_not(None),
                 )
-                .limit(1)
+                .limit(minimum)
             )
         )
+        return len(documents) >= minimum

@@ -44,15 +44,13 @@ const { data, status, error, refresh } = await useAsyncData(
           {{ issue.message }}
         </p>
         <NuxtLink
-          v-if="
-            data.enabled && data.taskType === 'qa' && !data.readiness.length
-          "
+          v-if="data.enabled && !data.readiness.length"
           :to="`/o/${orgId}/chat?agent=${agentId}`"
-          >开始文档问答</NuxtLink
+          >{{ data.taskType === 'qa' ? '开始文档问答' : '填写任务' }}</NuxtLink
         >
         <button v-else class="secondary" disabled>开始任务（尚未就绪）</button>
         <p class="small muted">
-          开始问答将使用已保存的第
+          填写不会调用模型。发送任务后使用已保存的第
           {{ data.versionNumber }} 版配置并计入用量。
         </p>
       </section></template

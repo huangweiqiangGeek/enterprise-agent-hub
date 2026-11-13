@@ -13,6 +13,7 @@ from starlette.responses import Response
 
 from backend import __version__
 from backend.api.agents import router as agents_router
+from backend.api.dashboard import router as dashboard_router
 from backend.api.github import router as github_router
 from backend.api.identity import router as identity_router
 from backend.api.knowledge import router as knowledge_router
@@ -58,6 +59,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(settings_router)
     app.include_router(knowledge_router)
     app.include_router(agents_router)
+    app.include_router(dashboard_router)
     app.include_router(runs_router)
     app.include_router(github_router)
     app.state.github_mcp = GitHubMCP()

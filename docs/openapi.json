@@ -5264,6 +5264,89 @@
         }
       }
     },
+    "/api/v1/dashboard": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "Dashboard",
+        "operationId": "dashboard_api_v1_dashboard_get",
+        "parameters": [
+          {
+            "name": "X-Organization-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "X-Organization-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_DashboardView_"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
+      }
+    },
     "/api/v1/runs/agents": {
       "get": {
         "tags": [
@@ -9497,6 +9580,151 @@
         ],
         "title": "ConversationView"
       },
+      "DashboardIssue": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "actionLabel": {
+            "type": "string",
+            "title": "Actionlabel"
+          },
+          "actionPath": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actionpath"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "actionLabel",
+          "actionPath"
+        ],
+        "title": "DashboardIssue"
+      },
+      "DashboardTemplate": {
+        "properties": {
+          "taskType": {
+            "type": "string",
+            "enum": [
+              "qa",
+              "compare",
+              "progress"
+            ],
+            "title": "Tasktype"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "inputDescription": {
+            "type": "string",
+            "title": "Inputdescription"
+          },
+          "outputDescription": {
+            "type": "string",
+            "title": "Outputdescription"
+          },
+          "ready": {
+            "type": "boolean",
+            "title": "Ready"
+          },
+          "readyAgentCount": {
+            "type": "integer",
+            "title": "Readyagentcount"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/DashboardIssue"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "taskType",
+          "name",
+          "description",
+          "inputDescription",
+          "outputDescription",
+          "ready",
+          "readyAgentCount",
+          "issues"
+        ],
+        "title": "DashboardTemplate"
+      },
+      "DashboardView": {
+        "properties": {
+          "organizationId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Organizationid"
+          },
+          "organizationName": {
+            "type": "string",
+            "title": "Organizationname"
+          },
+          "effectiveRole": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "member"
+            ],
+            "title": "Effectiverole"
+          },
+          "observedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Observedat"
+          },
+          "templates": {
+            "items": {
+              "$ref": "#/components/schemas/DashboardTemplate"
+            },
+            "type": "array",
+            "title": "Templates"
+          },
+          "recentConversations": {
+            "items": {
+              "$ref": "#/components/schemas/ConversationSummary"
+            },
+            "type": "array",
+            "title": "Recentconversations"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "organizationId",
+          "organizationName",
+          "effectiveRole",
+          "observedAt",
+          "templates",
+          "recentConversations"
+        ],
+        "title": "DashboardView"
+      },
       "DocumentDTO": {
         "properties": {
           "id": {
@@ -9852,6 +10080,24 @@
           "requestId"
         ],
         "title": "Envelope[ConversationView]"
+      },
+      "Envelope_DashboardView_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/DashboardView"
+          },
+          "requestId": {
+            "type": "string",
+            "title": "Requestid"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "data",
+          "requestId"
+        ],
+        "title": "Envelope[DashboardView]"
       },
       "Envelope_DocumentDTO_": {
         "properties": {

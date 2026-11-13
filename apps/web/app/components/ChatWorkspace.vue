@@ -6,6 +6,7 @@ import {
   validProgressDates,
 } from '../utils/progress-range'
 import { object, terminal } from '../utils/run-stream'
+import { parseTaskType } from '../utils/task-type'
 type S = components['schemas']
 type Pending = {
   conversationKey: string
@@ -69,6 +70,7 @@ const selectedRun = ref(
 )
 const activeRun = ref(initial.value?.conversation?.activeRunId || '')
 const route = useRoute()
+const requestedType = parseTaskType(route.query.taskType)
 const agentId = ref(
   initial.value?.conversation?.agentId ||
     (typeof route.query.agent === 'string' ? route.query.agent : ''),
@@ -77,6 +79,7 @@ const taskType = computed(
   () =>
     initial.value?.conversation?.taskType ||
     initial.value?.agents.items.find((a) => a.id === agentId.value)?.taskType ||
+    requestedType ||
     'qa',
 )
 const requirementDocumentId = ref(''),
@@ -190,7 +193,11 @@ const usable = computed(
       (a) =>
         ['qa', 'compare', 'progress'].includes(a.taskType) &&
         a.enabled &&
-        !a.readiness.length,
+        !a.readiness.length &&
+        (props.conversationId ||
+          pending.value ||
+          !requestedType ||
+          a.taskType === requestedType),
     ) || [],
 )
 function current(n: number) {

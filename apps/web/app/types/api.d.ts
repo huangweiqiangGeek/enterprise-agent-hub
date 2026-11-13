@@ -542,6 +542,23 @@ export interface paths {
         patch: operations["status_api_v1_agents__agent_id__status_patch"];
         trace?: never;
     };
+    "/api/v1/dashboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Dashboard */
+        get: operations["dashboard_api_v1_dashboard_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/agents": {
         parameters: {
             query?: never;
@@ -1391,6 +1408,63 @@ export interface components {
              */
             revision: number;
         };
+        /** DashboardIssue */
+        DashboardIssue: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+            /** Actionlabel */
+            actionLabel: string;
+            /** Actionpath */
+            actionPath: string | null;
+        };
+        /** DashboardTemplate */
+        DashboardTemplate: {
+            /**
+             * Tasktype
+             * @enum {string}
+             */
+            taskType: "qa" | "compare" | "progress";
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Inputdescription */
+            inputDescription: string;
+            /** Outputdescription */
+            outputDescription: string;
+            /** Ready */
+            ready: boolean;
+            /** Readyagentcount */
+            readyAgentCount: number;
+            /** Issues */
+            issues: components["schemas"]["DashboardIssue"][];
+        };
+        /** DashboardView */
+        DashboardView: {
+            /**
+             * Organizationid
+             * Format: uuid
+             */
+            organizationId: string;
+            /** Organizationname */
+            organizationName: string;
+            /**
+             * Effectiverole
+             * @enum {string}
+             */
+            effectiveRole: "owner" | "admin" | "member";
+            /**
+             * Observedat
+             * Format: date-time
+             */
+            observedAt: string;
+            /** Templates */
+            templates: components["schemas"]["DashboardTemplate"][];
+            /** Recentconversations */
+            recentConversations: components["schemas"]["ConversationSummary"][];
+        };
         /** DocumentDTO */
         DocumentDTO: {
             /**
@@ -1509,6 +1583,12 @@ export interface components {
         /** Envelope[ConversationView] */
         Envelope_ConversationView_: {
             data: components["schemas"]["ConversationView"];
+            /** Requestid */
+            requestId: string;
+        };
+        /** Envelope[DashboardView] */
+        Envelope_DashboardView_: {
+            data: components["schemas"]["DashboardView"];
             /** Requestid */
             requestId: string;
         };
@@ -6978,6 +7058,73 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    dashboard_api_v1_dashboard_get: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Organization-Id": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Envelope_DashboardView_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

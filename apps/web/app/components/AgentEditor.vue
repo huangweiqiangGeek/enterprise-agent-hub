@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { components } from '../types/api'
 import { apiError } from '../utils/api-error'
+import { parseTaskType } from '../utils/task-type'
 
 type Config = components['schemas']['AgentConfig']
 type Form = Required<components['schemas']['AgentWrite']>
@@ -108,6 +109,12 @@ function applyTemplate() {
   form.value.description = value.description
   form.value.prompt = value.prompt
   form.value.toolKeys = [...value.toolKeys]
+}
+const requestedTemplate = parseTaskType(useRoute().query.taskType)
+if (!props.initial && requestedTemplate) {
+  template.value = requestedTemplate
+  applyTemplate()
+  snapshot.value = JSON.stringify(form.value)
 }
 async function action(work: () => Promise<void>) {
   if (busy.value) return
