@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { components } from '../../../../types/api'
-definePageMeta({ layout: 'workspace' })
+definePageMeta({ layout: 'workspace', key: (route) => route.path })
 const orgId = String(useRoute().params.orgId)
 const { $api } = useNuxtApp()
 const { organization } = useIdentity()
@@ -50,7 +50,7 @@ function config(
         :options="data?.options.filter((option) => option.kind === kind) ?? []"
         :config="config(kind)"
         :organization-id="orgId"
-        @saved="refresh()"
+        :refresh-config="refresh"
       />
     </div>
     <section v-else class="panel">

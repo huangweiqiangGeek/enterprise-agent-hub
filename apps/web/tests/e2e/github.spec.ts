@@ -42,8 +42,11 @@ test('GitHub explicit grants, secret clearing, removal and readonly tools', asyn
   await expect(page.getByLabel('专用只读凭据')).toBeEnabled()
   await page.getByLabel('专用只读凭据').fill('synthetic-browser-secret')
   await page.getByLabel('启用连接', { exact: true }).check()
-  page.once('dialog', (dialog) => dialog.dismiss())
+  const leaveDismissed = page
+    .waitForEvent('dialog')
+    .then((dialog) => dialog.dismiss())
   await page.getByRole('link', { name: '组织概览', exact: true }).click()
+  await leaveDismissed
   await expect(page.getByLabel('专用只读凭据')).toHaveValue(
     'synthetic-browser-secret',
   )
@@ -80,8 +83,11 @@ test('GitHub explicit grants, secret clearing, removal and readonly tools', asyn
   await expect(
     page.getByRole('button', { name: '移除 example/hub' }),
   ).toBeVisible()
-  page.once('dialog', (dialog) => dialog.dismiss())
+  const removalDismissed = page
+    .waitForEvent('dialog')
+    .then((dialog) => dialog.dismiss())
   await page.getByRole('button', { name: '移除 example/hub' }).click()
+  await removalDismissed
   await expect(
     page.getByRole('button', { name: '移除 example/hub' }),
   ).toBeVisible()

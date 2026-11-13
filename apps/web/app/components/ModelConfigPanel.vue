@@ -9,11 +9,11 @@ const props = defineProps<{
   kind: Option['kind']
   config?: Config
   organizationId: string
+  refreshConfig: () => Promise<void>
 }>()
-const emit = defineEmits<{ saved: [] }>()
 const { $api } = useNuxtApp()
 const { session } = useIdentity()
-const { busy, message, run } = useFormAction()
+const { busy, message, code, run } = useFormAction()
 const interactive = ref(false)
 onMounted(() => {
   interactive.value = true
@@ -31,6 +31,8 @@ const credential = ref('')
 const result = ref<Result | null>(null)
 const notice = ref('')
 const initial = ref('')
+const revision = ref(props.config?.revision ?? 0)
+const stale = computed(() => (props.config?.revision ?? 0) !== revision.value)
 const protocol = ref<Config['providerProtocol']>('openai-chat')
 const option = computed(() =>
   props.options.find((item) => item.providerProtocol === protocol.value),
@@ -53,6 +55,7 @@ function reset() {
   dimension.value = props.config?.dimension ?? null
   credential.value = ''
   initial.value = fingerprint()
+  revision.value = props.config?.revision ?? 0
 }
 function changeProtocol() {
   baseUrl.value = option.value?.baseUrls[0] ?? ''
@@ -62,10 +65,30 @@ function changeProtocol() {
   result.value = null
   notice.value = ''
 }
-watch(() => props.config?.revision, reset, { immediate: true })
+reset()
 const dirty = computed(
   () => initial.value !== fingerprint() || credential.value.length > 0,
 )
+watch(
+  () => props.config,
+  () => {
+    if (!dirty.value) reset()
+  },
+)
+async function reload() {
+  if (
+    dirty.value &&
+    !window.confirm('重新读取会丢弃未保存的模型配置，继续吗？')
+  )
+    return
+  await run(async () => {
+    reset()
+    result.value = null
+    notice.value = ''
+    await props.refreshConfig()
+    reset()
+  })
+}
 onBeforeRouteLeave(() => {
   if (
     session.value?.user &&
@@ -85,7 +108,7 @@ async function submit(save: boolean) {
       providerProtocol: protocol.value,
       baseUrl: baseUrl.value,
       modelName: modelName.value,
-      expectedRevision: props.config?.revision ?? 0,
+      expectedRevision: revision.value,
       ...(credential.value ? { credential: credential.value } : {}),
       ...(props.kind === 'embedding' && dimension.value
         ? { embeddingDimension: dimension.value }
@@ -100,8 +123,9 @@ async function submit(save: boolean) {
           timeoutMs: 40000,
         })
         initial.value = fingerprint()
+        credential.value = ''
+        await props.refreshConfig()
         notice.value = '配置已测试通过并生效。'
-        emit('saved')
       } else {
         result.value = await $api.request<Result>(
           `/settings/models/${props.kind}/test`,
@@ -126,10 +150,13 @@ async function submit(save: boolean) {
         <p class="small muted">{{ option.providerProtocol }}</p>
         <h2>{{ titles[kind] }}</h2>
       </div>
-      <span class="badge">{{ config ? '已生效' : '未配置' }}</span>
+      <span class="badge">{{
+        config ? (config.enabled ? '已生效' : '已停用') : '未配置'
+      }}</span>
     </div>
     <p v-if="config" class="small muted">
-      当前模型：{{ config.modelName }} · 上次测试：{{
+      当前模型：{{ config.modelName }} · 生效版本 {{ config.revision }} ·
+      上次测试：{{
         new Date(config.lastTestedAt)
           .toISOString()
           .replace('T', ' ')
@@ -148,6 +175,12 @@ async function submit(save: boolean) {
     </p>
     <p v-else class="small muted">
       用于重排检索结果。测试只发送一个短查询和两条示例文本。
+    </p>
+    <p v-if="stale || code === 'VERSION_CONFLICT'" class="notice">
+      配置已更新，当前输入已保留。重新读取生效配置后再核对修改。
+    </p>
+    <p v-if="code === 'EMBEDDING_LOCKED'" class="notice">
+      资料状态可能已变化。请重新读取锁定状态，不要重复测试不同的索引模型。
     </p>
     <form @submit.prevent="submit(true)">
       <fieldset :disabled="busy || !interactive">
@@ -224,7 +257,9 @@ async function submit(save: boolean) {
       <p class="small muted">
         测试与保存都会发起最小调用，可能产生用量；聊天模型最多两次调用。保存会重新测试，失败保留当前配置。凭据不会读回，提交后清空输入框。
       </p>
-      <p v-if="message" role="alert" class="error">{{ message }}</p>
+      <p v-if="message" role="alert" tabindex="-1" class="error">
+        {{ message }}
+      </p>
       <p v-if="notice" role="status" class="success">{{ notice }}</p>
       <div v-if="result" :class="result.ok ? 'success' : 'error'" role="status">
         <p>
@@ -252,16 +287,24 @@ async function submit(save: boolean) {
         <button
           type="button"
           class="secondary"
-          :disabled="busy || !modelName || !baseUrl"
+          :disabled="busy || !interactive || stale || !modelName || !baseUrl"
           @click="submit(false)"
         >
           仅测试</button
         ><button
           type="submit"
           class="primary"
-          :disabled="busy || !option.baseUrls.length"
+          :disabled="busy || !interactive || stale || !option.baseUrls.length"
         >
           {{ busy ? '正在测试…' : '测试并保存' }}
+        </button>
+        <button
+          type="button"
+          class="secondary"
+          :disabled="busy || !interactive"
+          @click="reload"
+        >
+          重新读取生效配置
         </button>
       </div>
     </form>

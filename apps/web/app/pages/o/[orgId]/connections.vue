@@ -265,7 +265,7 @@ async function toggle(tool: Tool) {
             <span class="small">验证时间：{{ item.verifiedAt }}</span
             ><button
               v-if="admin && item.enabled"
-              :disabled="busy"
+              :disabled="busy || !interactive"
               @click="remove(item)"
             >
               移除 {{ item.owner }}/{{ item.repo }}

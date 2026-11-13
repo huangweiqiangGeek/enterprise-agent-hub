@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { components } from '../../../../types/api'
-definePageMeta({ layout: 'workspace' })
+definePageMeta({ layout: 'workspace', key: (route) => route.path })
 type Limits = components['schemas']['Limits']
 type View = components['schemas']['LimitsView']
 const orgId = String(useRoute().params.orgId)
@@ -15,7 +15,7 @@ const { data, status, error, refresh } = await useAsyncData(
   `limits:${orgId}`,
   () => $api.request<View>('/settings/limits', { organizationId: orgId }),
 )
-const { busy, message, run } = useFormAction()
+const { busy, message, code, run } = useFormAction()
 const interactive = ref(false)
 onMounted(() => {
   interactive.value = true
@@ -37,21 +37,36 @@ const fields: { key: keyof Limits; label: string; unit: string }[] = [
   { key: 'maxActiveRunsPerOrganization', label: '组织同时运行数', unit: '个' },
   { key: 'maxQueuedRunsPerOrganization', label: '组织排队运行数', unit: '个' },
 ]
-const draft = ref<Limits | null>(null)
+const draft = ref<Limits | null>(
+  data.value ? { ...data.value.effective } : null,
+)
+const baseline = ref(JSON.stringify(draft.value))
+const revision = ref(data.value?.revision ?? 0)
 const notice = ref('')
-watch(
-  () => data.value?.revision,
-  () => {
-    const value = data.value
-    draft.value = value ? { ...value.effective } : null
-  },
-  { immediate: true },
+const dirty = computed(() => JSON.stringify(draft.value) !== baseline.value)
+const stale = computed(
+  () => data.value && data.value.revision !== revision.value,
 )
-const dirty = computed(
-  () =>
-    JSON.stringify(draft.value) !==
-    JSON.stringify(data.value?.effective ?? null),
-)
+function apply(value: View) {
+  draft.value = { ...value.effective }
+  baseline.value = JSON.stringify(draft.value)
+  revision.value = value.revision
+}
+watch(data, (value) => {
+  if (value && !dirty.value) apply(value)
+})
+async function reload() {
+  if (dirty.value && !window.confirm('重新读取会丢弃未保存的限制，继续吗？'))
+    return
+  await run(async () => {
+    const value = await $api.request<View>('/settings/limits', {
+      organizationId: orgId,
+    })
+    apply(value)
+    data.value = value
+    notice.value = '已读取当前生效限制。'
+  })
+}
 onBeforeRouteLeave(() => {
   if (
     session.value?.user &&
@@ -64,11 +79,13 @@ async function save() {
   notice.value = ''
   await run(async () => {
     if (!data.value || !draft.value) return
-    data.value = await $api.request<View>('/settings/limits', {
+    const value = await $api.request<View>('/settings/limits', {
       method: 'PUT',
       organizationId: orgId,
-      body: { limits: draft.value, expectedRevision: data.value.revision },
+      body: { limits: draft.value, expectedRevision: revision.value },
     })
+    apply(value)
+    data.value = value
     notice.value = '组织限制已保存，仅影响新接受的任务。'
   })
 }
@@ -90,8 +107,14 @@ async function save() {
     </div>
     <form v-else-if="data && draft" class="panel" @submit.prevent="save">
       <p class="small muted">
-        单文件上传大小限制已生效；Agent
-        任务尚未开放，其接受流程将在后续任务使用运行限制。
+        上传与运行均在接受时核对当前限制；权限撤销仍立即生效。
+        可将已降低的数值恢复至系统硬上限以内。
+      </p>
+      <p class="small muted">
+        生效版本：{{ data.revision }}；当前编辑基于版本 {{ revision }}。
+      </p>
+      <p v-if="stale || code === 'VERSION_CONFLICT'" class="notice">
+        限制已被更新，当前输入已保留。请先重新读取，再核对修改。
       </p>
       <div class="limits-grid">
         <div v-for="field in fields" :key="field.key" class="limit-field">
@@ -113,17 +136,27 @@ async function save() {
           </p>
         </div>
       </div>
-      <p v-if="message" class="error" role="alert">{{ message }}</p>
+      <p v-if="message" class="error" role="alert" tabindex="-1">
+        {{ message }}
+      </p>
       <p v-if="notice" class="success" role="status">{{ notice }}</p>
       <button
         v-if="canManage"
         class="primary"
         type="submit"
-        :disabled="busy || !dirty"
+        :disabled="busy || !interactive || !dirty || !!stale"
       >
         {{ busy ? '正在保存…' : '保存组织限制' }}
       </button>
       <p v-else class="muted">只有所有者和管理员可修改组织上限。</p>
+      <button
+        type="button"
+        class="secondary"
+        :disabled="busy || !interactive"
+        @click="reload"
+      >
+        重新读取生效限制
+      </button>
     </form>
   </div>
 </template>
