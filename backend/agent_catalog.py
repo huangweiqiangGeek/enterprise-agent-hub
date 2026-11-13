@@ -22,7 +22,10 @@ TOOLS = [
     ),
     *[
         AgentToolOption(
-            key=key, name=name, available=False, note="GitHub 只读连接尚未接入，可保留草稿选择。"
+            key=key,
+            name=name,
+            available=True,
+            note="仅允许固定只读操作；须配置连接、共享仓库和组织工具权限。",
         )
         for key, name in GITHUB_TOOLS
     ],

@@ -62,6 +62,18 @@ def main() -> None:
     settings = Settings()
     app = create_app(settings)
     fixture = module.ProviderFixture()
+    if os.getenv("EAH_BROWSER_GITHUB") == "1":
+        github_path = Path(__file__).resolve().parent.parent / "tests/github_fixture.py"
+        github_spec = importlib.util.spec_from_file_location(
+            "eah_browser_github_fixture", github_path
+        )
+        if github_spec is None or github_spec.loader is None:
+            raise RuntimeError("Synthetic MCP fixture missing")
+        github_module = importlib.util.module_from_spec(github_spec)
+        github_spec.loader.exec_module(github_module)
+        from backend.services.github_mcp import GitHubMCP
+
+        app.state.github_mcp = GitHubMCP(httpx.MockTransport(github_module.GitHubFixture().handle))
 
     async def handle(request: httpx.Request) -> httpx.Response:
         value = json.loads(request.content)

@@ -3,7 +3,7 @@ from sqlalchemy import Connection, pool
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from backend.config import Settings
-from backend.models import agents, knowledge, model_settings  # noqa: F401 -- migration metadata
+from backend.models import agents, github, knowledge, model_settings  # noqa: F401 -- migration metadata
 from backend.models.identity import Base
 from backend.runtime import run_async
 

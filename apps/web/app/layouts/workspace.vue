@@ -98,6 +98,10 @@ onUnmounted(() => {
             >Agent</NuxtLink
           ><NuxtLink
             v-if="organization"
+            :to="`/o/${organization.id}/connections`"
+            >连接与工具</NuxtLink
+          ><NuxtLink
+            v-if="organization"
             :to="`/o/${organization.id}/settings/team`"
             >团队成员</NuxtLink
           ><NuxtLink

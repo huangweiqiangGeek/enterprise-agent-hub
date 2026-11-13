@@ -175,3 +175,8 @@ D11不增加表或迁移。运行列表与统计共用organization/initiator/sta
 迁移 `0009_compare` 扩展 conversations.task_type 检查约束为 qa/compare，不改已有问答数据。回滚到0008时若仍存在compare会话，PostgreSQL约束校验失败并回滚整个迁移，不自动删除会话。应先备份并制定数据保留方案。
 
 compare沿用run/input/config/source/citation/usage表；graphVersion=compare-v1，历史qa-v2继续兼容。config_snapshot保存taskType、两文档处理版本和服务端解析的知识库范围；每次执行/恢复重新校验两份文档当前就绪状态与版本，变化则失败而非混用。
+
+
+## D13 实际迁移
+
+0010_github新增github_connections、github_repositories、org_tool_settings（共30张app表）。连接组织唯一，仓库外部ID/规范化名字组织唯一，连接与仓库复合组织FK；仓库撤销为enabled=false。连接保存/测试、仓库共享/撤销、工具修改递增access_revision并写无凭据审计。外部MCP期间不持有数据库事务，返回后再次检查权限和revision。降级仅允许空配置隔离库，已有配置抛错回滚，不删除凭据/授权。

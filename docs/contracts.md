@@ -322,3 +322,12 @@ ConversationCreate.taskType 支持 qa/compare，并须与固定 Agent 类型一�
 CompareResult 保留统一展示所需 answer/claims/conflicts/missingInformation/coverage，额外提供 summary/items。items 使用上表约定的双侧 sourceIds；covered/partial/conflict 必须双侧有本轮证据，not_found 的方案来源为空，文本固定说明仅为本次检索缺证。claims 是供现有引用和导出消费者使用的逐项证据投影，不是第二套模型结论。
 
 coverage.selectedDocuments 固化两侧 documentId/attemptId；sides 分列检索计数、includedChunkCount、omittedContextCount，chunkIds 为实际纳入的片段。每侧最多4片段/2000 UTF-8字节；始终披露不是全文覆盖。comparisonRole 附于来源 locator，仅标记两侧用途，不取代原文定位。
+
+
+## D13 已实现接口补充
+
+AP39～AP46已落地。成员AP39仅返回enabled/available，管理员另返回名称、hasCredential、revision、测试时间及安全测试结果。AP42/AP45返回数组。AP41候选测试不改变已保存配置；测试已保存凭据会更新测试结果和revision，失败使连接不可用。AP40启用/更换凭据需外部测试，关闭且保留原凭据不发外部调用。保存/外部返回后重新鉴权和版本校验；凭据不出现在DTO、审计或幂等记录。
+
+AP43 RepositoryAdd要求规范owner/repo和shareWithOrganization=true，使用Idempotency-Key；仅精确匹配真实full_name及正整数仓库ID可授权。空搜索/其他仓库返回GITHUB_REPOSITORY_UNVERIFIED，不能当成可读。撤销后原幂等键不会重新授权；新明确添加可恢复同一身份行。更换凭据停用全部旧授权。AP44软撤销，不删除历史身份。AP46只能修改四种GitHub工具，knowledge.search不可关闭。
+
+固定错误包括MCP_AUTH/MCP_SCOPE/MCP_RATE_LIMIT/MCP_REDIRECT/MCP_SCHEMA_CHANGED/MCP_CALL_FAILED/MCP_SCOPE_MISMATCH/MCP_RESULT_INVALID/MCP_RESPONSE_LIMIT/MCP_UNAVAILABLE；不透传提供方错误正文。T3运行及GitHub历史来源全链路投影属于D14/D17，当前无可用progress执行入口。

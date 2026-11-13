@@ -21,6 +21,7 @@ from backend.agent_schemas import (
 )
 from backend.config import Settings
 from backend.models.agents import Agent, AgentVersion, AgentVersionKB, AgentVersionTool
+from backend.models.github import GitHubConnection, GitHubRepository, OrgToolSetting
 from backend.models.identity import AuditEntry, Organization, now
 from backend.repositories.agents import AgentRepository
 from backend.repositories.model_settings import ModelRepository
@@ -118,16 +119,45 @@ class AgentService:
             missing(
                 "TOOLS_REQUIRED", "缺少此任务必需的只读工具。", "toolKeys", "选择标注为必需的工具"
             )
-        if (
-            any(key.startswith("github.") for key in value.tool_keys)
-            or value.task_type == "progress"
-        ):
-            missing(
-                "GITHUB_UNAVAILABLE",
-                "GitHub只读连接及允许仓库尚未接入，当前只能保存停用配置。",
-                "toolKeys",
-                "等待GitHub连接功能开放",
+        github_keys = [key for key in value.tool_keys if key.startswith("github.")]
+        if github_keys or value.task_type == "progress":
+            connection = await repo.db.scalar(
+                select(GitHubConnection).where(GitHubConnection.organization_id == repo.org)
             )
+            grant = await repo.db.scalar(
+                select(GitHubRepository.id)
+                .where(
+                    GitHubRepository.organization_id == repo.org, GitHubRepository.enabled.is_(True)
+                )
+                .limit(1)
+            )
+            disabled = list(
+                await repo.db.scalars(
+                    select(OrgToolSetting.tool_key).where(
+                        OrgToolSetting.organization_id == repo.org,
+                        OrgToolSetting.enabled.is_(False),
+                    )
+                )
+            )
+            if (
+                not connection
+                or not connection.enabled
+                or not connection.test_result.get("ok")
+                or not grant
+            ):
+                missing(
+                    "GITHUB_UNAVAILABLE",
+                    "请测试启用GitHub只读连接并明确共享至少一个仓库。",
+                    "toolKeys",
+                    "配置GitHub连接与仓库",
+                )
+            if any(key in disabled for key in github_keys):
+                missing(
+                    "TOOL_DISABLED",
+                    "所选GitHub工具已被组织停用。",
+                    "toolKeys",
+                    "调整工具或联系管理员",
+                )
         return issues
 
     async def config(self, repo: AgentRepository, row: Agent) -> AgentConfig:
@@ -375,6 +405,21 @@ class AgentService:
             kbs = await repo.valid_kbs(source.knowledge_base_ids)
             chat = await repo.chat(source.chat_connection_id)
             tools = [tool.key for tool in TOOLS if tool.available and tool.key in source.tool_keys]
+            github_unavailable = any(
+                issue.code == "GITHUB_UNAVAILABLE" for issue in source.readiness
+            )
+            disabled = list(
+                await repo.db.scalars(
+                    select(OrgToolSetting.tool_key).where(
+                        OrgToolSetting.organization_id == org, OrgToolSetting.enabled.is_(False)
+                    )
+                )
+            )
+            tools = [
+                key
+                for key in tools
+                if key not in disabled and not (github_unavailable and key.startswith("github."))
+            ]
             result = await self.persist(
                 identity,
                 organization,

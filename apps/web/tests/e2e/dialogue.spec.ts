@@ -472,11 +472,11 @@ test('run records share filters and expose historical detail and separate usage'
     .getByText('knowledge.search · 尝试 1 · succeeded', { exact: true })
     .click()
   await page.getByRole('button', { name: '查看步骤来源' }).first().click()
-  // Equal-score fixture chunks may appear in either order; verify document identity
-  // and a complete source passage rather than assuming the first chunk is review.
+  // Equal-score fixture chunks include a title and two paragraphs in arbitrary order.
+  // Verify document identity and an exact fixture excerpt, not an assumed rank.
   await expect(page.getByRole('dialog')).toContainText(doc)
   await expect(page.getByRole('dialog')).toContainText(
-    /发布必须经过评审。|发布应保留回滚记录。/,
+    /# 发布流程|发布必须经过评审。|发布应保留回滚记录。/,
   )
   await page.getByRole('button', { name: '关闭来源' }).click()
   expect(

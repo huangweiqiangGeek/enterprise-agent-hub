@@ -239,5 +239,5 @@ def test_compare_downgrade_refuses_to_discard_conversations(
             "SELECT task_type FROM app.conversations WHERE id=%s", (UUID(cid),)
         ).fetchone() == ("compare",)
         assert db.execute("SELECT version_num FROM public.alembic_version").fetchone() == (
-            "0009_compare",
+            "0010_github",
         )

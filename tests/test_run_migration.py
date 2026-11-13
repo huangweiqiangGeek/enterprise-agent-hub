@@ -17,6 +17,6 @@ def test_run_migration_roundtrip(database_url: str) -> None:
     command.upgrade(migration_config(), "head")
     with connection(database_url) as db:
         assert db.execute("SELECT version_num FROM public.alembic_version").fetchone() == (
-            "0009_compare",
+            "0010_github",
         )
         assert db.execute("SELECT count(*) FROM app.runs").fetchone() == (0,)

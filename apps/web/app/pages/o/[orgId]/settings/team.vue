@@ -9,6 +9,10 @@ const orgId = String(route.params.orgId)
 const { $api } = useNuxtApp()
 const { session, organization, refresh: refreshIdentity } = useIdentity()
 const { busy, message, run } = useFormAction()
+const interactive = ref(false)
+onMounted(() => {
+  interactive.value = true
+})
 const email = ref('')
 const resolved = ref<Account | null>(null)
 const addKey = ref('')
@@ -126,11 +130,14 @@ async function transfer(member: Member) {
         <label
           >成员邮箱<input
             v-model="email"
+            :disabled="busy || !interactive"
             type="email"
             required
             autocomplete="off"
             placeholder="同事注册时使用的邮箱" /></label
-        ><button class="secondary" :disabled="busy">核对账号</button>
+        ><button class="secondary" :disabled="busy || !interactive">
+          核对账号
+        </button>
       </form>
       <div v-if="resolved" class="notice">
         <p>
@@ -138,7 +145,7 @@ async function transfer(member: Member) {
           >（{{ resolved.email }}）
         </p>
         <p class="small">加入后角色为普通成员。</p>
-        <button class="primary" :disabled="busy" @click="add">
+        <button class="primary" :disabled="busy || !interactive" @click="add">
           确认添加成员
         </button>
       </div>
@@ -179,7 +186,7 @@ async function transfer(member: Member) {
                 <button
                   v-if="isOwner"
                   class="text-button"
-                  :disabled="busy"
+                  :disabled="busy || !interactive"
                   @click="changeRole(member)"
                 >
                   {{
@@ -188,14 +195,14 @@ async function transfer(member: Member) {
                 ><button
                   v-if="isOwner"
                   class="text-button"
-                  :disabled="busy"
+                  :disabled="busy || !interactive"
                   @click="transfer(member)"
                 >
                   转移所有权</button
                 ><button
                   v-if="isOwner || member.effectiveRole === 'member'"
                   class="text-button danger"
-                  :disabled="busy"
+                  :disabled="busy || !interactive"
                   @click="remove(member)"
                 >
                   移除
@@ -213,14 +220,14 @@ async function transfer(member: Member) {
     <div class="inline pagination">
       <button
         class="secondary"
-        :disabled="busy || status === 'pending'"
+        :disabled="busy || !interactive || status === 'pending'"
         @click="run(reload)"
       >
         刷新 / 返回第一页</button
       ><button
         v-if="data?.nextCursor"
         class="secondary"
-        :disabled="busy"
+        :disabled="busy || !interactive"
         @click="
           run(async () => {
             cursor = data?.nextCursor || null

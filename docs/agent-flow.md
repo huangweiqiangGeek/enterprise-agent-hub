@@ -176,3 +176,12 @@ Celery 可能重复投递；`acks_late` 不是 exactly-once 承诺。outbox 补�
 | 恢复/预算 | 每个上限边界与越界、重复队列、lease 抢占、取消竞争、SSE 丢失、未知 usage | DB/事件/usage 对账，唯一终态；不可恢复时明确失败 |
 
 固定业务评测集每类任务 4 个样例，各运行 3 次（共 36 次），每类至少 11/12 达到业务判定；隔离、只读、伪引用、权限撤销为零容忍。分别记录 retrieval hit/事实正确/引用支持/任务完成、耗时、Token来源、模型/Prompt/文档/图版本。故障与非法输入由确定性测试覆盖，不用随机生成成功率代替。真实模型和真实 MCP 验证另列，mock 通过不能算真实集成通过。
+
+
+## D13 适配状态
+
+固定mcp客户端Streamable HTTP、Bearer与X-MCP-Readonly/X-MCP-Tools过滤已实现，无REST回退。本地工具注册表只含四种平台GitHub读工具；search_repositories只用于管理验证。握手校验所需字段/类型/get枚举及只读注解，保存input/output Schema指纹，随后每次调用先tools/list与保存指纹比对，变化拒绝；额外远端写工具不注册。30秒总网络期限、1MiB每响应上限、禁止重定向。
+
+内部read_tool入口检查当前成员、Agent版本工具、组织工具、启用连接和精确仓库授权；返回后再查并比对access_revision。搜索由代码固定仓库/类型/日期/page（最多10页、每页20），按UTC更新时间半开区间二次过滤；详情固定get。输出校验github.com URL、仓库路径、类型及编号，正文裁剪披露。此入口尚未接入D14运行预算/步骤，不能单独替代run生命周期授权。
+
+真实GitHub tools/list/call未执行：没有专用凭据；合成JSON-RPC fixture不代表远端实际Schema及输出兼容性。真实Schema指纹、服务端版本与日期检索行为须用probe_github及后续T3验收补录，不能将本地兼容合同当成已观察的生产Schema。

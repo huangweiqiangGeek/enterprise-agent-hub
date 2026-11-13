@@ -13,6 +13,7 @@ from starlette.responses import Response
 
 from backend import __version__
 from backend.api.agents import router as agents_router
+from backend.api.github import router as github_router
 from backend.api.identity import router as identity_router
 from backend.api.knowledge import router as knowledge_router
 from backend.api.model_settings import router as settings_router
@@ -21,6 +22,7 @@ from backend.config import Settings
 from backend.db import database_ready, make_engine
 from backend.schemas import ErrorData, ErrorResponse
 from backend.services.errors import AppError
+from backend.services.github_mcp import GitHubMCP
 from backend.services.model_probe import ModelProbe
 from backend.services.storage import Storage
 
@@ -57,6 +59,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(knowledge_router)
     app.include_router(agents_router)
     app.include_router(runs_router)
+    app.include_router(github_router)
+    app.state.github_mcp = GitHubMCP()
 
     @app.exception_handler(AppError)
     async def application_error(request: Request, exc: AppError) -> JSONResponse:
