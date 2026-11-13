@@ -129,6 +129,8 @@ checkpoint 表由选定 LangGraph PostgreSQL 适配器创建，不在业务 ORM 
 
 D10成功工具step与run_sources在同事务保存。成功model step的output_summary内部 `_blocks` 保存完整校验候选，仅供恢复，不由公开steps返回。lease_generation首次为1，最多恢复至3；回收时先递增并清lease_owner，再投递，领取不再次递增。取消/终态共用组织→run锁；终态清owner/lease，未完成usage保留outcome_unknown与预留估算。迟到usage只可结算原usage ID，不可发布业务内容或终态。
 
+D11不增加表或迁移。运行列表与统计共用organization/initiator/status/agent/createdAt谓词；usage_entries按run_id及operation_kind聚合，分页游标不限制统计全集。历史名称来自agent_versions；排队与执行分别根据created_at/started_at/finished_at计算。统计读取沿用组织授权锁，与用量结算串行，重复run_events不参与计量。run_id为空的连接测试、入库或检索试查保留原账目，但不计入M6运行统计；单位与空值语义见contracts D11。
+
 ## 关键事务
 
 | 编号 | 同一事务内 | 事务外 | 并发/失败校验 |

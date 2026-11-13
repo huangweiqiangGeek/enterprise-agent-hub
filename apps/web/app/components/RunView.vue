@@ -2,7 +2,12 @@
 import type { components } from '../types/api'
 import { apiError } from '../utils/api-error'
 import { object, terminal } from '../utils/run-stream'
-const props = defineProps<{ org: string; runId: string; editable?: boolean }>()
+const props = defineProps<{
+  org: string
+  runId: string
+  editable?: boolean
+  detailed?: boolean
+}>()
 const emit = defineEmits<{
   settled: []
   retry: [value: components['schemas']['RunSnapshot']]
@@ -13,10 +18,33 @@ const { snapshot, draft, connection, error, recover } = useRun(
   props.org,
   toRef(props, 'runId'),
 )
+const {
+  data: report,
+  error: reportError,
+  refresh: refreshReport,
+  clear: clearReport,
+} = await useAsyncData(`run-report:${props.org}:${props.runId}`, () =>
+  props.detailed
+    ? $api.request<components['schemas']['RunReport']>(
+        `/runs/${props.runId}/report`,
+        { organizationId: props.org },
+      )
+    : Promise.resolve(null),
+)
+function duration(value: number | null) {
+  return value === null ? '尚未结束' : `${(value / 1000).toFixed(2)} 秒`
+}
+function syncDetails() {
+  recover()
+  refreshReport()
+}
 watch(
   () => snapshot.value?.status,
   (value) => {
-    if (value && terminal(value)) emit('settled')
+    if (value && terminal(value)) {
+      emit('settled')
+      if (props.detailed) refreshReport()
+    }
   },
 )
 const source = ref<components['schemas']['SourceDetail'] | null>(null)
@@ -67,8 +95,13 @@ const failureReason: Record<string, string> = {
   MODEL_STREAM_INTERRUPTED: '模型流中断，部分文本未经最终校验。可准备新重试。',
   RUN_QUEUE_TIMEOUT: '排队超过时限，尚未开始执行。可稍后准备新重试。',
   BUDGET_EXCEEDED: '本次预算已耗尽，未继续调用。可缩小范围后准备新重试。',
+  PERMISSION_REVOKED: '访问权限已变化，请核对团队资格、Agent 和资料范围。',
+  REQUIRED_SOURCE_UNAVAILABLE: '必需资料已失效，请重新选择就绪资料。',
+  MODEL_AUTH_FAILED: '模型连接认证失败，请联系管理员检查模型配置。',
+  MODEL_UNAVAILABLE: '模型服务暂时不可用，请联系管理员检查连接后再重试。',
 }
 function invalidate() {
+  clearReport()
   generation++
   source.value = null
   steps.value = []
@@ -204,8 +237,57 @@ function locator(value: unknown) {
         {{ snapshot.configVersion.versionNumber }} 版
       </p>
       <p>{{ snapshot.inputSummary }}</p>
+      <NuxtLink v-if="!detailed" :to="`/o/${org}/runs/${runId}`"
+        >执行详情与用量</NuxtLink
+      >
+      <template v-if="detailed">
+        <p v-if="reportError" class="error">用量详情读取失败，请重新同步。</p>
+        <template v-if="report">
+          <h3>{{ report.agentName }} · 历史版本 {{ report.versionNumber }}</h3>
+          <p>
+            发起者：{{ report.initiatorName }} · 排队
+            {{ duration(report.queueDurationMs) }} · 执行
+            {{ duration(report.executionDurationMs) }}
+          </p>
+          <p>
+            时间（UTC）：创建 {{ snapshot.createdAt }}<br />开始
+            {{ snapshot.startedAt || '尚未开始' }} · 结束
+            {{ snapshot.finishedAt || '尚未结束' }}
+          </p>
+          <details>
+            <summary>历史配置与资料范围</summary>
+            <pre>{{
+              JSON.stringify(
+                {
+                  配置: snapshot.configVersion,
+                  资料: snapshot.input,
+                  预算: snapshot.budgetSnapshot,
+                },
+                null,
+                2,
+              )
+            }}</pre>
+          </details>
+          <UsageBreakdown :values="report.byKind" />
+          <p v-if="report.isOwner">
+            <NuxtLink :to="`/o/${org}/chat/${snapshot.conversationId}`"
+              >返回本人对话修改输入或准备重试</NuxtLink
+            >
+          </p>
+          <p v-else class="notice">
+            组织审计仅供查看，不能代发或重试他人的任务。
+          </p>
+          <p v-for="id in report.retryIds" :key="id">
+            <NuxtLink :to="`/o/${org}/runs/${id}`"
+              >查看关联重试 {{ id }}</NuxtLink
+            >
+          </p>
+        </template>
+      </template>
       <p v-if="snapshot.retryOfRunId" class="small muted">
-        重试自运行 {{ snapshot.retryOfRunId }}，本次使用重新校验后的配置与预算。
+        重试自<NuxtLink :to="`/o/${org}/runs/${snapshot.retryOfRunId}`"
+          >运行 {{ snapshot.retryOfRunId }}</NuxtLink
+        >，本次使用重新校验后的配置与预算。
       </p>
       <div v-if="editable" class="actions">
         <button
@@ -326,13 +408,17 @@ function locator(value: unknown) {
       </template>
       <div class="actions">
         <button @click="loadSteps(false)">查看简明步骤</button
-        ><button class="text-button" @click="recover">重新同步结果</button>
+        ><button class="text-button" @click="syncDetails">重新同步结果</button>
       </div>
       <details v-for="step in steps" :key="step.id">
         <summary>
           {{ step.name }} · 尝试 {{ step.attempt }} · {{ step.status }}
         </summary>
         <p>{{ step.durationMs ?? '—' }} ms · {{ step.errorCode || '' }}</p>
+        <p>UTC {{ step.startedAt }} → {{ step.finishedAt || '尚未结束' }}</p>
+        <button v-for="id in step.sourceIds" :key="id" @click="openSource(id)">
+          查看步骤来源
+        </button>
         <pre>{{
           JSON.stringify(
             {

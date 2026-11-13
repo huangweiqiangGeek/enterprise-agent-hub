@@ -50,6 +50,7 @@ class PageCursor(DTO):
     access_revision: int
     created_at: datetime
     id: UUID
+    filter_digest: str | None = None
 
 
 class IdentityService:

@@ -193,9 +193,21 @@ AP48/AP50/AP51/AP52/AP55/AP60 已有实现；默认列表20条、最大100条，
 
 AP55 用 `${runId}:${seq}` 校验 Last-Event-ID；省略从0补发，负数、非十进制、其他 run 或超过 lastSeq 均422，已清理/不连续历史409。每批最多100条，短事务授权后释放锁；无事件每1秒重读、15秒注释心跳；终态追平结束。终态快照仍可读，游标错误不能新建 run。SSE响应无JSON外壳，明确 `text/event-stream`/`no-store`。前端未知类型/版本记录不匹配并安全跳过，不据此判定成功。
 
-AP60 仅支持 format=markdown，省略默认 markdown；其他值422。未成功409 EXPORT_NOT_AVAILABLE；成功导出包含 UTC 生成时间、问题、知识范围、Agent版号、文档/处理版本、答案与逐项引用、资料不足及覆盖限制。所有动态文本按字面 Markdown 转义；不输出原始 HTML 或模型自造链接。删除文档保留历史答案并标注原文不可用，来源接口不返回 excerpt。权限失效后事件关闭，读取/下载重新鉴权。运行列表 AP57、统计 AP59 仍在后续任务。
+AP60 仅支持 format=markdown，省略默认 markdown；其他值422。未成功409 EXPORT_NOT_AVAILABLE；成功导出包含 UTC 生成时间、问题、知识范围、Agent版号、文档/处理版本、答案与逐项引用、资料不足及覆盖限制。所有动态文本按字面 Markdown 转义；不输出原始 HTML 或模型自造链接。删除文档保留历史答案并标注原文不可用，来源接口不返回 excerpt。权限失效后事件关闭，读取/下载重新鉴权。
 
 D10已实现AP56：仅发起者，校验当前成员与CSRF；无请求体/幂等键，按目标状态幂等。初始非终态返回202（排队直接取消，运行中记录cancelRequested）；已经终态返回200且不改原结果。响应均为Envelope<RunSnapshot>。取消先提交后不能成功，成功先提交后取消返回原成功。响应未知可对原run再次取消或查询AP54，禁止推断已取消。管理员只读审计无此权限，越权目标404。AP54增加input（QAInput）和deadlineAt（未启动为null），用于人工核对重试和执行时限。AP53的retryOfRunId已支持：本会话失败/取消/超时终态，新run使用当前保存配置和预算，原输入先重新校验，仍用原接受幂等机制。
+
+### D11 执行记录与统计补充
+
+AP57/AP59共用scope（默认mine）、status（六种运行状态）、agentId、startDate/endDate（成对YYYY-MM-DD，包含结束日）及timezone（IANA名，默认UTC）。按run.createdAt转换为当地开始日零点至结束日次日零点的UTC左闭右开区间，遵循夏令时；省略日期不限时间。无效时区/日期/状态422；普通成员请求organization返回403，跨组织详情404。AP57按createdAt/id倒序，limit默认20、最大100；签名cursor绑定用户、组织、accessRevision和过滤条件，改变条件须重置，错配422 CURSOR_INVALID。
+
+RunSummary包含历史agentName/versionNumber、conversationId、agentId、taskType、initiatorId/Name、status、createdAt、queueDurationMs/executionDurationMs和chat用量。名字与版本取不可变AgentVersion，不随Agent改名变化。`GET /runs/agents?scope=mine|organization`返回同权限范围内曾有运行的Agent选项Page（nextCursor=null）；允许筛选当前已停用Agent的历史记录。
+
+AP59返回runCount、statusCounts、terminalCount、successRate、chat、byKind、queueDuration/executionDuration、rangeUtc、timezone/scope、observedAt。成功率只以全部终态为分母；零分母null。排队时长为createdAt至startedAt，未启动即终止则至finishedAt；执行时长为startedAt至finishedAt；未结束阶段为null，不参加对应count/avg/p50/p95（毫秒）。列表与统计各自单次请求在既有组织授权锁内读取；两个HTTP请求不是同一事务，实时结算时可存在短暂差异，UI明确提示刷新核对。
+
+UsageTotals按chat/embedding/rerank分别聚合usage_entries，不从事件累加、不按run状态排除失败/取消尝试，不含runId为空的准备调用。actualUsageCount对应有实测Token的尝试；inputTokens/outputTokens仅合计这些实测值，estimatedTokens独立合计保留的预留估算；unavailableUsageCount表示Token不可得，unknownOutcomeCount表示结果未知，pendingCount/failedCount保留调用状态。非Chat只呈现输入Token；无实测时UI不将0冒充实测。billedUnits独立合计提供方实际返回的total_tokens/search_units/input_tokens，不混入聊天Token，也不换算金额。
+
+`GET /runs/{id}/report`为M6只读补充投影，沿用AP54权限，返回历史agentName/versionNumber、initiatorName、isOwner、排队/执行时长、byKind与retryIds。输入、配置/预算快照、结果/错误仍由AP54读取，步骤与来源仍由AP58/AP52鉴权读取；保留原AP54消费者兼容性。查看不创建run、不调用模型或工具；管理员审计无他人会话、取消或重试写入口。精确字段以[OpenAPI](openapi.json)生成DTO为准。
 
 ## 请求与响应 DTO
 

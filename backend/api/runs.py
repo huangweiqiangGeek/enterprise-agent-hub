@@ -8,6 +8,14 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response, StreamingResponse
 
 from backend.api.identity import CSRF_COOKIE, SESSION_COOKIE, Key, OrgId
+from backend.report_schemas import (
+    RunAgentOption,
+    RunFilters,
+    RunListFilters,
+    RunReport,
+    RunSummary,
+    UsageSummary,
+)
 from backend.run_schemas import (
     ConversationCreate,
     ConversationRename,
@@ -22,9 +30,9 @@ from backend.run_schemas import (
     TaskOptions,
 )
 from backend.schemas import Envelope, ErrorResponse, Page
-from backend.services.dialogue import DialogueService
 from backend.services.errors import AppError
 from backend.services.model_settings import SessionProof
+from backend.services.run_reports import RunReportService
 
 router = APIRouter(
     prefix="/api/v1",
@@ -33,8 +41,8 @@ router = APIRouter(
 )
 
 
-def run_service(request: Request) -> DialogueService:
-    return DialogueService(
+def run_service(request: Request) -> RunReportService:
+    return RunReportService(
         request.app.state.engine,
         request.app.state.settings,
         request.state.request_id,
@@ -47,7 +55,48 @@ def run_service(request: Request) -> DialogueService:
     )
 
 
-Service = Annotated[DialogueService, Depends(run_service)]
+Service = Annotated[RunReportService, Depends(run_service)]
+
+
+@router.get("/runs/agents", response_model=Envelope[Page[RunAgentOption]])
+async def report_agents(
+    org_id: OrgId, service: Service, scope: Literal["mine", "organization"] = "mine"
+) -> Envelope[Page[RunAgentOption]]:
+    return Envelope(
+        data=await service.report_agents(org_id, RunFilters(scope=scope)),
+        request_id=service.request_id,
+    )
+
+
+@router.get("/runs", response_model=Envelope[Page[RunSummary]])
+async def run_list(
+    org_id: OrgId,
+    service: Service,
+    filters: Annotated[RunListFilters, Query()],
+) -> Envelope[Page[RunSummary]]:
+    return Envelope(
+        data=await service.run_list(
+            org_id,
+            RunFilters.model_validate(filters.model_dump(exclude={"cursor", "limit"})),
+            filters.cursor,
+            filters.limit,
+        ),
+        request_id=service.request_id,
+    )
+
+
+@router.get("/usage/summary", response_model=Envelope[UsageSummary])
+async def usage_summary(
+    org_id: OrgId, service: Service, filters: Annotated[RunFilters, Query()]
+) -> Envelope[UsageSummary]:
+    return Envelope(
+        data=await service.usage_summary(org_id, filters), request_id=service.request_id
+    )
+
+
+@router.get("/runs/{run_id}/report", response_model=Envelope[RunReport])
+async def report(run_id: UUID, org_id: OrgId, service: Service) -> Envelope[RunReport]:
+    return Envelope(data=await service.report(org_id, run_id), request_id=service.request_id)
 
 
 @router.get("/conversations", response_model=Envelope[Page[ConversationSummary]])

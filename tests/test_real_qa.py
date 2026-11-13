@@ -186,6 +186,15 @@ def test_real_qa_linux_duplicate_delivery(database_url: str) -> None:
             assert all(c["attemptId"] in exported.text for c in result["citations"])
             events = owner.request("GET", f"/runs/{run_id}/events")
             assert events.status_code == 200 and "event: run.completed" in events.text
+            # D11 read-only projections must reconcile the real provider attempts.
+            totals = owner.request("GET", "/usage/summary").json()["data"]
+            report = owner.request("GET", f"/runs/{run_id}/report").json()["data"]
+            listing = owner.request("GET", "/runs").json()["data"]
+            assert totals["runCount"] == totals["terminalCount"] == 1
+            assert totals["successRate"] == 1
+            assert listing["items"][0]["id"] == run_id
+            assert report["byKind"] == totals["byKind"]
+            assert totals["chat"]["actualUsageCount"] == 1
             with connection(database_url) as db:
                 counts = db.execute(
                     "SELECT operation_kind,status,token_source,input_tokens,"
@@ -196,6 +205,8 @@ def test_real_qa_linux_duplicate_delivery(database_url: str) -> None:
                 assert len(counts) == 3 and all(c[1] == "succeeded" for c in counts), counts
                 assert all(c[5] for c in counts), "Every real request needs provider trace ID"
                 assert counts[-1][2] == "actual" and counts[-1][3] > 0 and counts[-1][4] > 0
+                assert totals["chat"]["inputTokens"] == counts[-1][3]
+                assert totals["chat"]["outputTokens"] == counts[-1][4]
                 assert db.execute(
                     "SELECT count(*) FROM app.run_events WHERE run_id=%s AND type='run.completed'",
                     (run_id,),

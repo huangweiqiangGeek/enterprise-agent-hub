@@ -350,6 +350,18 @@ test('admin audit is read only; revoked member loses displayed result and stream
     await expect(
       page.getByRole('button', { name: /发送|停止|代发/ }),
     ).toHaveCount(0)
+    await expect(page.getByRole('link', { name: /返回本人对话/ })).toHaveCount(
+      0,
+    )
+    await page.goto(`/o/${org}/runs`)
+    await expect(page.getByRole('heading', { name: /运行 0 次/ })).toBeVisible()
+    await page.getByLabel('查看范围').selectOption('organization')
+    await page.getByRole('button', { name: '应用筛选' }).click()
+    await expect(page.getByRole('heading', { name: /运行 1 次/ })).toBeVisible()
+    await page.getByRole('link', { name: '查看详情', exact: true }).click()
+    await expect(
+      page.getByRole('heading', { name: '运行只读详情' }),
+    ).toBeVisible()
     const members = (
       await (await page.request.get('/api/v1/members', { headers })).json()
     ).data.items
@@ -379,6 +391,114 @@ test('admin audit is read only; revoked member loses displayed result and stream
   } finally {
     await context.close()
   }
+})
+
+test('run records share filters and expose historical detail and separate usage', async ({
+  page,
+}) => {
+  const { org, headers, agent, kb, doc } = await prepare(page)
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  const cid = (
+    await (
+      await page.request.post('/api/v1/conversations', {
+        headers: { ...headers, 'Idempotency-Key': randomUUID() },
+        data: { agentId: agent, taskType: 'qa' },
+      })
+    ).json()
+  ).data.id as string
+  const accepted = await page.request.post(
+    `/api/v1/conversations/${cid}/runs`,
+    {
+      headers: { ...headers, 'Idempotency-Key': randomUUID() },
+      data: {
+        agentId: agent,
+        input: { question: '发布流程', knowledgeBaseIds: [kb] },
+      },
+    },
+  )
+  const rid = (await accepted.json()).data.runId as string
+  await expect
+    .poll(
+      async () =>
+        (
+          await (
+            await page.request.get(`/api/v1/runs/${rid}`, { headers })
+          ).json()
+        ).data.status,
+      { timeout: 25000 },
+    )
+    .toBe('succeeded')
+  await page.goto(`/o/${org}/runs`)
+  await expect(
+    page.getByRole('heading', { name: '执行记录与用量', exact: true }),
+  ).toBeVisible()
+  await expect(page.getByLabel('运行统计')).toContainText(
+    '运行 1 次 · 成功率 100.0%',
+  )
+  await expect(
+    page.getByRole('row').filter({ hasText: '文档助手' }),
+  ).toContainText('已完成')
+  await page.getByLabel('运行状态').selectOption('failed')
+  await page.getByRole('button', { name: '应用筛选' }).click()
+  await expect(page.getByLabel('运行统计')).toContainText(
+    '运行 0 次 · 成功率 暂无',
+  )
+  await expect(
+    page.getByText('没有符合条件的运行。', { exact: false }),
+  ).toBeVisible()
+  await page.getByLabel('运行状态').selectOption('')
+  await page.getByLabel('时区', { exact: true }).fill('Asia/Shanghai')
+  await page.getByRole('button', { name: '应用筛选' }).click()
+  await expect(
+    page.getByRole('columnheader', { name: '创建时间（Asia/Shanghai）' }),
+  ).toBeVisible()
+  await page.getByRole('link', { name: '查看详情', exact: true }).click()
+  await expect(
+    page.getByRole('heading', { name: '文档助手 · 历史版本 1' }),
+  ).toBeVisible()
+  await expect(page.getByText('发起者：', { exact: false })).toContainText(
+    '排队',
+  )
+  await page.getByText('历史配置与资料范围', { exact: true }).click()
+  await expect(
+    page.getByText('历史配置与资料范围', { exact: true }).locator('..'),
+  ).toContainText('gpt-4o-mini')
+  await expect(
+    page.getByRole('link', { name: '返回本人对话修改输入或准备重试' }),
+  ).toBeVisible()
+  await page.getByRole('button', { name: '查看简明步骤' }).click()
+  await page
+    .getByText('knowledge.search · 尝试 1 · succeeded', { exact: true })
+    .click()
+  await page.getByRole('button', { name: '查看步骤来源' }).first().click()
+  // Equal-score fixture chunks may appear in either order; verify document identity
+  // and a complete source passage rather than assuming the first chunk is review.
+  await expect(page.getByRole('dialog')).toContainText(doc)
+  await expect(page.getByRole('dialog')).toContainText(
+    /发布必须经过评审。|发布应保留回滚记录。/,
+  )
+  await page.getByRole('button', { name: '关闭来源' }).click()
+  expect(
+    (
+      await page.request.delete(`/api/v1/documents/${doc}`, { headers })
+    ).status(),
+  ).toBe(204)
+  await page.reload()
+  await expect(
+    page.getByText('部分来源已删除，历史答案保留，原文不可用。'),
+  ).toBeVisible()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('link', { name: '返回执行记录', exact: true }).click()
+  await expect(
+    page.getByRole('heading', { name: '执行记录与用量', exact: true }),
+  ).toBeVisible()
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth + 1,
+    ),
+  ).toBe(true)
+  expect(errors).toEqual([])
 })
 
 test('cancel response loss, offline refresh and explicit linked retry', async ({

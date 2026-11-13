@@ -92,6 +92,8 @@ onUnmounted(() => {
             >知识库</NuxtLink
           ><NuxtLink v-if="organization" :to="`/o/${organization.id}/chat`"
             >对话工作台</NuxtLink
+          ><NuxtLink v-if="organization" :to="`/o/${organization.id}/runs`"
+            >执行记录与用量</NuxtLink
           ><NuxtLink v-if="organization" :to="`/o/${organization.id}/agents`"
             >Agent</NuxtLink
           ><NuxtLink
