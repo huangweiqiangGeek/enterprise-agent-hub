@@ -20,6 +20,7 @@ from backend.repositories.runs import RunRepository, fail
 from backend.retrieval_schemas import SearchPreview
 from backend.run_schemas import Claim, QAResult, ResultBlock
 from backend.services.errors import AppError
+from backend.services.github_mcp import GitHubMCP
 from backend.services.model_probe import Attempt, ModelProbe, ProbeFailure
 from backend.services.run_chat import Chat
 from backend.services.run_retrieval import RunRetrieval
@@ -46,7 +47,7 @@ def validate(blocks: list[ResultBlock], sources: set[UUID], coverage: dict[str, 
     conflicts: list[Claim] = []
     missing: list[str] = []
     for block in blocks:
-        if block.type == "comparison" or block.item is not None:
+        if block.type in {"comparison", "blocker", "risk"} or block.item is not None:
             raise fail("RESULT_INVALID")
         if not set(block.source_ids) <= sources:
             raise fail("CITATION_INVALID")
@@ -95,8 +96,9 @@ class QA:
     def evidence(self, source: RunSource) -> dict[str, Any]:
         return {"sourceId": str(source.id), "text": source.excerpt, "title": source.title}
 
-    def __init__(self, state: RunState, probe: ModelProbe):
+    def __init__(self, state: RunState, probe: ModelProbe, mcp: GitHubMCP | None = None):
         self.state, self.probe = state, probe
+        self.mcp = mcp or GitHubMCP()
         self.history: list[dict[str, str]] = []
 
     async def context(self, graph: QAState) -> dict[str, Any]:
@@ -168,6 +170,8 @@ class QA:
     async def retrieve(self, graph: QAState) -> dict[str, Any]:
         run = await self.state.check()
         question = run.input_snapshot["question"]
+        if run.config_snapshot.get("taskType") == "progress":
+            question = (run.input_snapshot.get("focus") or "") + "\n" + question
         previous = next((m["content"] for m in reversed(self.history) if m["role"] == "user"), "")
         query = (
             ((previous + "\n" if previous else "") + question)
@@ -305,7 +309,15 @@ class QA:
                         "question": run.input_snapshot["question"],
                         **(
                             {"focus": run.input_snapshot.get("focus")}
-                            if run.config_snapshot.get("taskType") == "compare"
+                            if run.config_snapshot.get("taskType") in {"compare", "progress"}
+                            else {}
+                        ),
+                        **(
+                            {
+                                "queryScope": run.coverage.get("queryScope"),
+                                "limitations": run.coverage.get("limitations"),
+                            }
+                            if run.config_snapshot.get("taskType") == "progress"
                             else {}
                         ),
                         "evidence": [self.evidence(s) for s in sources],
@@ -438,6 +450,10 @@ class QA:
                 from backend.services.compare import Compare
 
                 runner = Compare(self.state, self.probe)
+            elif run.config_snapshot.get("taskType") == "progress":
+                from backend.services.progress import Progress
+
+                runner = Progress(self.state, self.probe, self.mcp)
             graph = StateGraph(QAState)
             for name, node in (
                 ("context", runner.context),

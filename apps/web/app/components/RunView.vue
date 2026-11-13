@@ -96,6 +96,10 @@ const failureReason: Record<string, string> = {
   RUN_QUEUE_TIMEOUT: '排队超过时限，尚未开始执行。可稍后准备新重试。',
   BUDGET_EXCEEDED: '本次预算已耗尽，未继续调用。可缩小范围后准备新重试。',
   PERMISSION_REVOKED: '访问权限已变化，请核对团队资格、Agent 和资料范围。',
+  GITHUB_PERMISSION_REVOKED:
+    'GitHub 授权已变化，混合结果与来源暂不可查看。请核对仓库授权。',
+  GITHUB_UNAVAILABLE: 'GitHub 连接或授权仓库不可用，请管理员检查后重试。',
+  GITHUB_AUTH_FAILED: 'GitHub 认证失败，不能将失败查询视为空结果。',
   REQUIRED_SOURCE_UNAVAILABLE: '必需资料已失效，请重新选择就绪资料。',
   MODEL_AUTH_FAILED: '模型连接认证失败，请联系管理员检查模型配置。',
   MODEL_UNAVAILABLE: '模型服务暂时不可用，请联系管理员检查连接后再重试。',
@@ -137,6 +141,40 @@ const citations = computed(() =>
       : [],
   ),
 )
+const progressResult = computed(() => {
+  const result = snapshot.value?.result
+  return result && 'queryScope' in result ? result : null
+})
+const progressGroups = computed(() =>
+  progressResult.value
+    ? [
+        { label: '进展', items: progressResult.value.progress },
+        { label: '阻塞', items: progressResult.value.blockers },
+        { label: '风险', items: progressResult.value.risks },
+        { label: '待核实', items: progressResult.value.toVerify },
+        { label: '建议', items: progressResult.value.suggestions },
+      ]
+    : [],
+)
+const sourceUrl = computed(() => {
+  const raw = source.value?.htmlUrl
+  if (!raw || source.value?.kind !== 'github') return null
+  try {
+    const url = new URL(raw)
+    return url.protocol === 'https:' &&
+      url.hostname === 'github.com' &&
+      !url.username &&
+      !url.password &&
+      !url.port &&
+      !url.search &&
+      !url.hash &&
+      /^\/[^/]+\/[^/]+\/(issues|pull)\/\d+$/.test(url.pathname)
+      ? url.href
+      : null
+  } catch {
+    return null
+  }
+})
 async function openSource(id: string) {
   const epoch = ++generation
   source.value = null
@@ -331,112 +369,173 @@ function locator(value: unknown) {
           部分来源已删除，历史答案保留，原文不可用。
         </p>
         <div data-testid="final-answer">
-          <div v-if="'items' in snapshot.result" class="table-scroll">
-            <h3>逐项对比</h3>
-            <p>{{ snapshot.result.summary }}</p>
-            <table>
-              <thead>
-                <tr>
-                  <th>需求与来源</th>
-                  <th>方案证据与来源</th>
-                  <th>状态</th>
-                  <th>影响（待核对）</th>
-                  <th>建议</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(item, index) in snapshot.result.items" :key="index">
-                  <td>
-                    {{ item.requirement
-                    }}<button
-                      v-for="id in item.requirementSourceIds"
-                      :key="id"
-                      class="text-button"
-                      @click="openSource(id)"
-                    >
-                      查看需求来源
-                    </button>
-                  </td>
-                  <td>
-                    {{ item.solutionEvidence
-                    }}<button
-                      v-for="id in item.solutionSourceIds"
-                      :key="id"
-                      class="text-button"
-                      @click="openSource(id)"
-                    >
-                      查看方案来源
-                    </button>
-                  </td>
-                  <td>
-                    {{
-                      {
-                        covered: '已覆盖（本次证据）',
-                        partial: '部分覆盖',
-                        not_found: '本次未检索到',
-                        conflict: '证据冲突',
-                      }[item.status]
-                    }}
-                  </td>
-                  <td>{{ item.impact }}</td>
-                  <td>{{ item.suggestion }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <template v-if="progressResult">
+            <h3>项目进展与风险</h3>
+            <p class="notice">
+              仅依据当前可见的更新样本与计划证据。PR 合并不等于部署或验收；Issue
+              关闭不等于业务目标完成。
+            </p>
+            <p class="small">
+              仓库：{{ progressResult.queryScope.repository }} · 时区：{{
+                progressResult.queryScope.timezone
+              }}
+            </p>
+            <p class="small">
+              UTC 范围：{{ progressResult.queryScope.start }}（含）至
+              {{ progressResult.queryScope.endExclusive }}（不含）
+            </p>
+            <details>
+              <summary>查询范围</summary>
+              <pre>{{
+                JSON.stringify(progressResult.queryScope, null, 2)
+              }}</pre>
+            </details>
+            <section v-for="group in progressGroups" :key="group.label">
+              <h4>{{ group.label }}</h4>
+              <p v-if="!group.items.length" class="muted">
+                本次证据未形成该类结论，不代表不存在。
+              </p>
+              <p
+                v-for="(claim, index) in group.items"
+                :key="index"
+                class="answer-text"
+              >
+                <span class="badge">{{
+                  {
+                    fact: '事实',
+                    inference: '推断',
+                    suggestion: '建议',
+                    unknown: '待核实',
+                  }[claim.kind]
+                }}</span>
+                {{ claim.text }}
+                <button
+                  v-for="id in claim.sourceIds"
+                  :key="id"
+                  class="text-button"
+                  @click="openSource(id)"
+                >
+                  查看依据
+                </button>
+              </p>
+            </section>
+          </template>
+          <template v-else>
+            <div v-if="'items' in snapshot.result" class="table-scroll">
+              <h3>逐项对比</h3>
+              <p>{{ snapshot.result.summary }}</p>
+              <table>
+                <thead>
+                  <tr>
+                    <th>需求与来源</th>
+                    <th>方案证据与来源</th>
+                    <th>状态</th>
+                    <th>影响（待核对）</th>
+                    <th>建议</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="(item, index) in snapshot.result.items"
+                    :key="index"
+                  >
+                    <td>
+                      {{ item.requirement
+                      }}<button
+                        v-for="id in item.requirementSourceIds"
+                        :key="id"
+                        class="text-button"
+                        @click="openSource(id)"
+                      >
+                        查看需求来源
+                      </button>
+                    </td>
+                    <td>
+                      {{ item.solutionEvidence
+                      }}<button
+                        v-for="id in item.solutionSourceIds"
+                        :key="id"
+                        class="text-button"
+                        @click="openSource(id)"
+                      >
+                        查看方案来源
+                      </button>
+                    </td>
+                    <td>
+                      {{
+                        {
+                          covered: '已覆盖（本次证据）',
+                          partial: '部分覆盖',
+                          not_found: '本次未检索到',
+                          conflict: '证据冲突',
+                        }[item.status]
+                      }}
+                    </td>
+                    <td>{{ item.impact }}</td>
+                    <td>{{ item.suggestion }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p
+              v-if="
+                !snapshot.result.claims.length &&
+                !snapshot.result.conflicts.length
+              "
+              class="answer-text"
+            >
+              {{ snapshot.result.answer }}
+            </p>
+            <div
+              v-for="(claim, index) in snapshot.result.claims"
+              :key="`claim-${index}`"
+              class="answer-text"
+            >
+              <span class="badge">{{
+                {
+                  fact: '事实',
+                  inference: '推断',
+                  suggestion: '建议',
+                  unknown: '待补充',
+                }[claim.kind]
+              }}</span>
+              {{ claim.text }}
+              <button
+                v-for="c in citations.filter(
+                  (c) => c.claimPath === `claims.${index}`,
+                )"
+                :key="c.label"
+                class="text-button"
+                :aria-label="`来源 ${c.label}：${c.title}`"
+                @click="openSource(c.sourceId)"
+              >
+                [{{ c.label }}]
+              </button>
+            </div>
+            <div
+              v-for="(claim, index) in snapshot.result.conflicts"
+              :key="`conflict-${index}`"
+              class="notice"
+            >
+              资料冲突：{{ claim.text }}
+              <button
+                v-for="c in citations.filter(
+                  (c) => c.claimPath === `conflicts.${index}`,
+                )"
+                :key="c.label"
+                class="text-button"
+                @click="openSource(c.sourceId)"
+              >
+                来源 [{{ c.label }}]
+              </button>
+            </div>
+          </template>
           <p
-            v-if="
-              !snapshot.result.claims.length &&
-              !snapshot.result.conflicts.length
-            "
-            class="answer-text"
+            v-for="text in progressResult
+              ? []
+              : snapshot.result.missingInformation"
+            :key="text"
           >
-            {{ snapshot.result.answer }}
-          </p>
-          <div
-            v-for="(claim, index) in snapshot.result.claims"
-            :key="`claim-${index}`"
-            class="answer-text"
-          >
-            <span class="badge">{{
-              {
-                fact: '事实',
-                inference: '推断',
-                suggestion: '建议',
-                unknown: '待补充',
-              }[claim.kind]
-            }}</span>
-            {{ claim.text }}
-            <button
-              v-for="c in citations.filter(
-                (c) => c.claimPath === `claims.${index}`,
-              )"
-              :key="c.label"
-              class="text-button"
-              :aria-label="`来源 ${c.label}：${c.title}`"
-              @click="openSource(c.sourceId)"
-            >
-              [{{ c.label }}]
-            </button>
-          </div>
-          <div
-            v-for="(claim, index) in snapshot.result.conflicts"
-            :key="`conflict-${index}`"
-            class="notice"
-          >
-            资料冲突：{{ claim.text }}
-            <button
-              v-for="c in citations.filter(
-                (c) => c.claimPath === `conflicts.${index}`,
-              )"
-              :key="c.label"
-              class="text-button"
-              @click="openSource(c.sourceId)"
-            >
-              来源 [{{ c.label }}]
-            </button>
-          </div>
-          <p v-for="text in snapshot.result.missingInformation" :key="text">
             待补充：{{ text }}
           </p>
         </div>
@@ -459,6 +558,9 @@ function locator(value: unknown) {
           复制部分文本
         </button>
       </template>
+      <p v-if="snapshot.resultVisibility === 'withheld'" class="notice">
+        资料授权已撤销，整段混合结果、草稿与来源暂不可查看。
+      </p>
       <div class="actions">
         <button @click="loadSteps(false)">查看简明步骤</button
         ><button class="text-button" @click="syncDetails">重新同步结果</button>
@@ -492,13 +594,39 @@ function locator(value: unknown) {
       <p v-if="message" role="alert">{{ message }}</p>
       <template v-if="source"
         ><h2>{{ source.title }}</h2>
-        <p>{{ locator(source.locator) }}</p>
-        <p class="small">
-          文档：{{ source.documentId }}<br />处理版本：{{ source.attemptId
-          }}<br />片段：{{ source.chunkId }}<br />观察时间：{{
-            source.observedAt
-          }}<br />内容摘要：{{ source.contentHash }}
-        </p>
+        <template v-if="source.kind === 'github'">
+          <p>
+            GitHub {{ source.itemType === 'pr' ? 'PR' : 'Issue' }} #{{
+              source.number
+            }}
+            · 授权仓库 {{ source.repoId }}
+          </p>
+          <a
+            v-if="sourceUrl"
+            :href="sourceUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            >打开 GitHub 原条目</a
+          >
+          <p class="small">
+            观察时间：{{ source.observedAt }}<br />内容摘要：{{
+              source.contentHash
+            }}
+          </p>
+          <details>
+            <summary>来源元数据</summary>
+            <pre>{{ JSON.stringify(source.locator, null, 2) }}</pre>
+          </details>
+        </template>
+        <template v-else>
+          <p>{{ locator(source.locator) }}</p>
+          <p class="small">
+            文档：{{ source.documentId }}<br />处理版本：{{ source.attemptId
+            }}<br />片段：{{ source.chunkId }}<br />观察时间：{{
+              source.observedAt
+            }}<br />内容摘要：{{ source.contentHash }}
+          </p>
+        </template>
         <p v-if="source.availability !== 'available'">
           来源已删除或不可用，无法读取原文。
         </p>

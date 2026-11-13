@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import type { components } from '../types/api'
 import { apiError } from '../utils/api-error'
+import {
+  defaultProgressDates,
+  validProgressDates,
+} from '../utils/progress-range'
 import { object, terminal } from '../utils/run-stream'
 type S = components['schemas']
 type Pending = {
@@ -11,7 +15,11 @@ type Pending = {
   question: string
   knowledgeBaseIds: string[]
   documentIds: string[]
-  taskType?: 'qa' | 'compare'
+  taskType?: 'qa' | 'compare' | 'progress'
+  repoId?: string
+  startDate?: string
+  endDate?: string
+  timezone?: string
   requirementDocumentId?: string
   solutionDocumentId?: string
   retryOfRunId?: string
@@ -73,6 +81,15 @@ const taskType = computed(
 )
 const requirementDocumentId = ref(''),
   solutionDocumentId = ref('')
+const repoId = ref(''),
+  startDate = ref(''),
+  endDate = ref(''),
+  timezone = ref('UTC')
+const dateError = computed(() =>
+  validProgressDates(startDate.value, endDate.value, timezone.value)
+    ? ''
+    : '请选择有效时区和日期，开始日期不能晚于结束日期，且不能选择未来日期。',
+)
 const validScope = computed(() =>
   taskType.value === 'compare'
     ? Boolean(
@@ -80,7 +97,9 @@ const validScope = computed(() =>
         solutionDocumentId.value &&
         requirementDocumentId.value !== solutionDocumentId.value,
       )
-    : Boolean(kbIds.value.length),
+    : Boolean(kbIds.value.length) &&
+      (taskType.value !== 'progress' ||
+        Boolean(repoId.value && !dateError.value)),
 )
 const taskOptions = ref<S['TaskOptions'] | null>(null)
 const kbIds = ref<string[]>([]),
@@ -121,6 +140,21 @@ async function prepareRetry(value: S['RunSnapshot']) {
   kbIds.value = input.knowledgeBaseIds.filter((id) =>
     taskOptions.value?.knowledgeBases.some((k) => k.id === id),
   )
+  if ('repoId' in input) {
+    repoId.value = taskOptions.value.repositories?.some(
+      (r) => r.id === input.repoId,
+    )
+      ? input.repoId
+      : ''
+    startDate.value = input.startDate
+    endDate.value = input.endDate
+    timezone.value = input.timezone
+    retryOfRunId.value = value.id
+    if (kbIds.value.length !== input.knowledgeBaseIds.length) kbIds.value = []
+    message.value =
+      '已载入原仓库、日期与时区。请核对当前授权和计划资料后创建新重试。'
+    return
+  }
   await nextTick()
   documentIds.value = (input.documentIds || []).filter((id) =>
     visibleDocuments.value.some((d) => d.id === id),
@@ -154,7 +188,7 @@ const usable = computed(
   () =>
     initial.value?.agents.items.filter(
       (a) =>
-        ['qa', 'compare'].includes(a.taskType) &&
+        ['qa', 'compare', 'progress'].includes(a.taskType) &&
         a.enabled &&
         !a.readiness.length,
     ) || [],
@@ -170,6 +204,7 @@ async function chooseAgent() {
   documentIds.value = []
   requirementDocumentId.value = ''
   solutionDocumentId.value = ''
+  repoId.value = ''
   if (!id) return
   loadingOptions.value = true
   try {
@@ -179,6 +214,13 @@ async function chooseAgent() {
     )
     if (n !== scopeEpoch || organization.value?.id !== props.org) return
     taskOptions.value = value
+    if (pending.value?.taskType === 'progress') {
+      repoId.value = pending.value.repoId || ''
+      startDate.value = pending.value.startDate || ''
+      endDate.value = pending.value.endDate || ''
+      timezone.value = pending.value.timezone || ''
+      kbIds.value = [...pending.value.knowledgeBaseIds]
+    }
     // Follow-ups require explicit range selection; never broaden an earlier selection.
     if (!props.conversationId && !pending.value)
       kbIds.value = value.knowledgeBases.map((k) => k.id)
@@ -296,7 +338,16 @@ async function submit() {
       question: question.value.trim(),
       knowledgeBaseIds: [...kbIds.value],
       documentIds: [...documentIds.value],
-      taskType: taskType.value === 'compare' ? 'compare' : 'qa',
+      taskType:
+        taskType.value === 'progress'
+          ? 'progress'
+          : taskType.value === 'compare'
+            ? 'compare'
+            : 'qa',
+      repoId: repoId.value,
+      startDate: startDate.value,
+      endDate: endDate.value,
+      timezone: timezone.value,
       requirementDocumentId: requirementDocumentId.value,
       solutionDocumentId: solutionDocumentId.value,
       retryOfRunId: retryOfRunId.value,
@@ -358,11 +409,21 @@ async function reconcile() {
                     question: request.question,
                     focus: request.question,
                   }
-                : {
-                    question: request.question,
-                    knowledgeBaseIds: request.knowledgeBaseIds,
-                    documentIds: request.documentIds,
-                  },
+                : request.taskType === 'progress'
+                  ? {
+                      repoId: request.repoId,
+                      startDate: request.startDate,
+                      endDate: request.endDate,
+                      timezone: request.timezone,
+                      knowledgeBaseIds: request.knowledgeBaseIds,
+                      question: request.question,
+                      focus: request.question,
+                    }
+                  : {
+                      question: request.question,
+                      knowledgeBaseIds: request.knowledgeBaseIds,
+                      documentIds: request.documentIds,
+                    },
             retryOfRunId: request.retryOfRunId,
           },
         },
@@ -438,6 +499,10 @@ async function updateConversation() {
 }
 onMounted(() => {
   interactive.value = true
+  timezone.value = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  const dates = defaultProgressDates(timezone.value)
+  startDate.value = dates.startDate
+  endDate.value = dates.endDate
   try {
     const raw: unknown = JSON.parse(localStorage.getItem(storageKey) || 'null')
     if (
@@ -450,7 +515,12 @@ onMounted(() => {
       Array.isArray(raw.knowledgeBaseIds) &&
       raw.knowledgeBaseIds.every((x) => typeof x === 'string') &&
       Array.isArray(raw.documentIds) &&
-      raw.documentIds.every((x) => typeof x === 'string')
+      raw.documentIds.every((x) => typeof x === 'string') &&
+      (raw.taskType !== 'progress' ||
+        (typeof raw.repoId === 'string' &&
+          typeof raw.startDate === 'string' &&
+          typeof raw.endDate === 'string' &&
+          typeof raw.timezone === 'string'))
     ) {
       pending.value = {
         conversationKey: raw.conversationKey,
@@ -460,7 +530,17 @@ onMounted(() => {
         question: raw.question,
         knowledgeBaseIds: raw.knowledgeBaseIds,
         documentIds: raw.documentIds,
-        taskType: raw.taskType === 'compare' ? 'compare' : 'qa',
+        taskType:
+          raw.taskType === 'progress'
+            ? 'progress'
+            : raw.taskType === 'compare'
+              ? 'compare'
+              : 'qa',
+        repoId: typeof raw.repoId === 'string' ? raw.repoId : undefined,
+        startDate:
+          typeof raw.startDate === 'string' ? raw.startDate : undefined,
+        endDate: typeof raw.endDate === 'string' ? raw.endDate : undefined,
+        timezone: typeof raw.timezone === 'string' ? raw.timezone : undefined,
         requirementDocumentId:
           typeof raw.requirementDocumentId === 'string'
             ? raw.requirementDocumentId
@@ -493,7 +573,7 @@ onUnmounted(() => {
   <div>
     <h1>对话工作台</h1>
     <p class="muted">
-      基于已授权文档问答与双文档对比，保留每轮证据与运行记录。
+      基于授权文档与仓库开展问答、对比和进展总结，保留每轮证据与运行记录。
     </p>
     <p v-if="initialError" class="error" role="alert">
       {{ apiError(initialError).message }}
@@ -541,7 +621,13 @@ onUnmounted(() => {
                   ? '助手 · 未完成'
                   : '助手'
             }}</strong>
-            <p class="history-text">{{ item.content }}</p>
+            <p class="history-text">
+              {{
+                item.resultVisibility === 'withheld'
+                  ? '资料授权已撤销，整段历史结果暂不可查看。'
+                  : item.content
+              }}
+            </p>
             <button
               v-if="item.role === 'assistant'"
               @click="selectedRun = item.runId"
@@ -566,7 +652,9 @@ onUnmounted(() => {
                 ? '继续追问'
                 : taskType === 'compare'
                   ? '开始需求与方案对比'
-                  : '开始文档问答'
+                  : taskType === 'progress'
+                    ? '开始项目进展与风险总结'
+                    : '开始文档问答'
             }}
           </h2>
           <p v-if="retryOfRunId" class="notice">
@@ -584,11 +672,11 @@ onUnmounted(() => {
             >任务类型<select :value="taskType" disabled>
               <option value="qa">文档问答</option>
               <option value="compare">需求与方案对比</option>
+              <option value="progress">项目进展与风险总结</option>
             </select></label
           >
           <p class="small muted">
-            选择对应类型的 Agent 开始任务，项目进展尚未开放。更换 Agent
-            或任务类型请新建会话。
+            选择对应类型的 Agent 开始任务。更换 Agent 或任务类型请新建会话。
           </p>
           <label
             >Agent<select
@@ -625,7 +713,7 @@ onUnmounted(() => {
               版；提交时以最新保存配置和当前权限为准。
             </p>
             <fieldset
-              v-if="taskType === 'qa'"
+              v-if="taskType === 'qa' || taskType === 'progress'"
               :disabled="busy || Boolean(pending)"
             >
               <legend>知识范围（追问请明确选择）</legend>
@@ -637,6 +725,54 @@ onUnmounted(() => {
                   kb.name
                 }}</label
               >
+            </fieldset>
+            <fieldset
+              v-if="taskType === 'progress'"
+              :disabled="busy || Boolean(pending)"
+            >
+              <legend>单仓库与观察日期</legend>
+              <label
+                >授权仓库<select v-model="repoId" required>
+                  <option value="">请选择一个仓库</option>
+                  <option
+                    v-for="repo in taskOptions.repositories"
+                    :key="repo.id"
+                    :value="repo.id"
+                  >
+                    {{ repo.owner }}/{{ repo.repo }}
+                  </option>
+                </select></label
+              >
+              <p v-if="!taskOptions.repositories?.length" class="notice">
+                暂无可用授权仓库，请管理员检查 GitHub 连接与仓库共享。
+              </p>
+              <label
+                >开始日期<input v-model="startDate" type="date" required
+              /></label>
+              <label
+                >结束日期<input v-model="endDate" type="date" required
+              /></label>
+              <label
+                >时区（IANA）<input
+                  v-model="timezone"
+                  placeholder="Asia/Shanghai"
+                  required
+                  list="progress-timezones"
+              /></label>
+              <datalist id="progress-timezones">
+                <option value="Asia/Shanghai"></option>
+                <option value="UTC"></option>
+                <option value="America/New_York"></option>
+                <option value="Europe/London"></option>
+              </datalist>
+              <p v-if="dateError" role="status" class="error">
+                {{ dateError }}
+              </p>
+              <p class="small muted">
+                包含开始日和结束日，按所选时区换算
+                UTC。仅总结该日期范围内更新且当前可见的 Issue/PR
+                样本，不代表完整历史。PR 合并不等于部署或验收。
+              </p>
             </fieldset>
             <details v-if="taskType === 'qa'">
               <summary>限定文档（未选时使用所选库中所有就绪文档）</summary>

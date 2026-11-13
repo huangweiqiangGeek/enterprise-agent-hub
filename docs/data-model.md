@@ -180,3 +180,7 @@ compare沿用run/input/config/source/citation/usage表；graphVersion=compare-v1
 ## D13 实际迁移
 
 0010_github新增github_connections、github_repositories、org_tool_settings（共30张app表）。连接组织唯一，仓库外部ID/规范化名字组织唯一，连接与仓库复合组织FK；仓库撤销为enabled=false。连接保存/测试、仓库共享/撤销、工具修改递增access_revision并写无凭据审计。外部MCP期间不持有数据库事务，返回后再次检查权限和revision。降级仅允许空配置隔离库，已有配置抛错回滚，不删除凭据/授权。
+
+## D14 实际迁移
+
+0011_progress允许conversation.task_type=progress；run_sources新增source_kind、repository_id、external_type/number/url，文档三ID可空。CHECK要求文档来源完整文档身份且无GitHub字段，GitHub来源完整仓库/类型/正整数编号/URL且无文档身份；仓库关联使用复合组织外键。GitHub identity_key为仓库外部ID/type/number/内容哈希，UUID按run隔离生成。queryScope实际保存在run.coverage，不另复制到来源列。存量progress或GitHub来源禁止降级，失败事务不删除数据。

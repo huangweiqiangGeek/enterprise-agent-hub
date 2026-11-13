@@ -38,7 +38,7 @@ class RunState:
             if run.cancel_requested or (run.deadline_at and run.deadline_at <= now()):
                 await self.close(db, repo, run, error="RUN_CANCELLED")
                 return None
-            if run.graph_version not in {GRAPH_VERSION, "compare-v1"}:
+            if run.graph_version not in {GRAPH_VERSION, "compare-v1", "progress-v1"}:
                 await self.close(db, repo, run, error="RUN_INTERRUPTED")
                 return None
             if recovering:
@@ -299,7 +299,7 @@ class RunState:
                     if not await repo.sources_valid(run):
                         raise fail("REQUIRED_SOURCE_UNAVAILABLE")
                     if (
-                        run.graph_version not in {GRAPH_VERSION, "compare-v1"}
+                        run.graph_version not in {GRAPH_VERSION, "compare-v1", "progress-v1"}
                         or run.lease_generation >= 3
                         or (model_steps and not reusable)
                     ):

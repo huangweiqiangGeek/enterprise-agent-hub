@@ -357,7 +357,7 @@ def test_github_migration_preserves_config(
         command.downgrade(migration_config(), "0009_compare")
     with connect(database_url) as db:
         assert db.execute("select version_num from public.alembic_version").fetchone() == (
-            "0010_github",
+            "0011_progress",
         )
 
 

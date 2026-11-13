@@ -1,9 +1,11 @@
-from datetime import datetime
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Annotated, Any, Literal
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, StringConstraints, field_validator, model_validator
 
+from backend.github_schemas import RepositoryView
 from backend.schemas import DTO, Name, Revision
 
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
@@ -12,7 +14,7 @@ RunStatus = Literal["queued", "running", "succeeded", "failed", "cancelled", "ti
 
 class ConversationCreate(DTO):
     agent_id: UUID
-    task_type: Literal["qa", "compare"]
+    task_type: Literal["qa", "compare", "progress"]
     title: Annotated[
         str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)
     ] = "文档问答"
@@ -62,6 +64,39 @@ class CompareInput(DTO):
         return self
 
 
+class ProgressInput(DTO):
+    repo_id: UUID
+    start_date: date
+    end_date: date
+    timezone: str = Field(min_length=1, max_length=100)
+    knowledge_base_ids: list[UUID] = Field(min_length=1, max_length=10)
+    focus: Text | None = None
+    question: Text = "总结进展与风险"
+
+    @model_validator(mode="after")
+    def valid_range(self) -> "ProgressInput":
+        try:
+            zone = ZoneInfo(self.timezone)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ValueError("Unknown timezone") from None
+        if self.start_date > self.end_date or self.end_date > datetime.now(zone).date():
+            raise ValueError("Dates must be ordered and not in the future")
+        try:
+            self.utc_range()
+        except OverflowError:
+            raise ValueError("Dates outside supported UTC range") from None
+        if len(set(self.knowledge_base_ids)) != len(self.knowledge_base_ids):
+            raise ValueError("Duplicate knowledge selectors")
+        return self
+
+    def utc_range(self) -> tuple[datetime, datetime]:
+        zone = ZoneInfo(self.timezone)
+        return (
+            datetime.combine(self.start_date, time.min, zone).astimezone(UTC),
+            datetime.combine(self.end_date + timedelta(days=1), time.min, zone).astimezone(UTC),
+        )
+
+
 class CompareItem(DTO):
     requirement: Text
     requirement_source_ids: list[UUID] = Field(min_length=1, max_length=8)
@@ -74,7 +109,7 @@ class CompareItem(DTO):
 
 class RunCreate(DTO):
     agent_id: UUID
-    input: QAInput | CompareInput
+    input: QAInput | CompareInput | ProgressInput
     retry_of_run_id: UUID | None = None
 
 
@@ -105,14 +140,27 @@ class CompareResult(QAResult):
     items: list[CompareItem]
 
 
-def result_value(value: dict[str, Any]) -> QAResult | CompareResult:
+class ProgressResult(QAResult):
+    progress: list[Claim]
+    blockers: list[Claim]
+    risks: list[Claim]
+    to_verify: list[Claim]
+    suggestions: list[Claim]
+    query_scope: dict[str, Any]
+
+
+def result_value(value: dict[str, Any]) -> QAResult | CompareResult | ProgressResult:
+    if "queryScope" in value or "query_scope" in value:
+        return ProgressResult.model_validate(value)
     return (
         CompareResult.model_validate(value) if "items" in value else QAResult.model_validate(value)
     )
 
 
 class ResultBlock(DTO):
-    type: Literal["summary", "claim", "conflict", "unknown", "suggestion", "comparison"]
+    type: Literal[
+        "summary", "claim", "conflict", "unknown", "suggestion", "comparison", "blocker", "risk"
+    ]
     item: CompareItem | None = None
     text: Text
     kind: Literal["fact", "inference", "suggestion", "unknown"] = "unknown"
@@ -122,11 +170,11 @@ class ResultBlock(DTO):
 class RunSnapshot(DTO):
     id: UUID
     conversation_id: UUID
-    task_type: Literal["qa", "compare"] = "qa"
+    task_type: Literal["qa", "compare", "progress"] = "qa"
     status: RunStatus
     cancel_requested: bool
     input_summary: str
-    input: QAInput | CompareInput
+    input: QAInput | CompareInput | ProgressInput
     deadline_at: datetime | None
     config_version: dict[str, Any]
     budget_snapshot: dict[str, int]
@@ -135,7 +183,7 @@ class RunSnapshot(DTO):
     finished_at: datetime | None
     last_seq: int
     partial_message: str | None
-    result: QAResult | CompareResult | None
+    result: QAResult | CompareResult | ProgressResult | None
     citations: list[dict[str, Any]]
     coverage: dict[str, Any]
     result_visibility: Literal["visible", "partially_unavailable", "withheld"]
@@ -167,21 +215,25 @@ class MessageView(DTO):
     content: str
     is_partial: bool
     result_visibility: Literal["visible", "partially_unavailable", "withheld"]
-    result: QAResult | CompareResult | None
+    result: QAResult | CompareResult | ProgressResult | None
     citations: list[dict[str, Any]]
     created_at: datetime
 
 
 class SourceDetail(DTO):
     id: UUID
-    kind: Literal["document"] = "document"
+    kind: Literal["document", "github"] = "document"
     availability: Literal["available", "deleted", "unavailable"]
     title: str
     excerpt: str | None
     locator: dict[str, Any]
-    document_id: UUID
-    attempt_id: UUID
-    chunk_id: UUID
+    document_id: UUID | None = None
+    attempt_id: UUID | None = None
+    chunk_id: UUID | None = None
+    repo_id: UUID | None = None
+    item_type: str | None = None
+    number: int | None = None
+    html_url: str | None = None
     observed_at: datetime
     content_hash: str
 
@@ -203,4 +255,5 @@ class TaskOptions(DTO):
     version_number: int
     knowledge_bases: list[TaskKnowledge]
     documents: list[TaskDocument]
+    repositories: list[RepositoryView] = Field(default_factory=list)
     limits: dict[str, int]

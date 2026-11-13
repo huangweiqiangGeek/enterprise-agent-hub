@@ -679,3 +679,116 @@ test('compare two ready documents, inspect both sources and export bounded cover
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(page.getByLabel('需求文档')).toBeVisible()
 })
+
+test('progress explicit scope, grouped evidence, export and revoked mixed result', async ({
+  page,
+}, info) => {
+  test.skip(
+    process.env.EAH_BROWSER_GITHUB !== '1',
+    'Requires synthetic GitHub MCP transport',
+  )
+  const { org, headers, agent, kb } = await prepare(page)
+  const config = (
+    await (
+      await page.request.get(`/api/v1/agents/${agent}`, { headers })
+    ).json()
+  ).data
+  expect(
+    (
+      await page.request.put('/api/v1/connections/github', {
+        headers,
+        data: {
+          name: '合成连接',
+          enabled: true,
+          credential: 'fixture-only',
+          expectedRevision: 0,
+        },
+      })
+    ).status(),
+  ).toBe(200)
+  const grant = await page.request.post(
+    '/api/v1/connections/github/repositories',
+    {
+      headers: { ...headers, 'Idempotency-Key': randomUUID() },
+      data: { owner: 'demo', repo: 'project', shareWithOrganization: true },
+    },
+  )
+  expect(grant.status()).toBe(201)
+  const repoId = (await grant.json()).data.id as string
+  const created = await page.request.post('/api/v1/agents', {
+    headers: { ...headers, 'Idempotency-Key': randomUUID() },
+    data: {
+      name: '进展助手',
+      taskType: 'progress',
+      prompt: '仅根据样本与计划说明进展，风险是待核实推断。',
+      knowledgeBaseIds: [kb],
+      toolKeys: [
+        'knowledge.search',
+        'github.search_issues',
+        'github.search_pull_requests',
+      ],
+      chatConnectionId: config.chatConnectionId,
+      enabled: true,
+    },
+  })
+  expect(created.status()).toBe(201)
+  const progressAgent = (await created.json()).data.id as string
+  await page.goto(`/o/${org}/chat?agent=${progressAgent}`)
+  await expect(page.getByLabel('授权仓库')).toBeVisible()
+  await page.getByLabel('授权仓库').selectOption(repoId)
+  await page.getByLabel('时区（IANA）').fill('UTC')
+  const utcDay = new Date().toISOString().slice(0, 10)
+  await page.getByLabel('开始日期', { exact: true }).fill(utcDay)
+  await page.getByLabel('结束日期', { exact: true }).fill(utcDay)
+  await page
+    .getByLabel('问题', { exact: true })
+    .fill('核对发布计划和当前仓库进展')
+  await page.getByRole('button', { name: '发送问题', exact: true }).click()
+  await expect(
+    page.getByRole('heading', { name: '项目进展与风险', exact: true }),
+  ).toBeVisible({ timeout: 30000 })
+  await expect(page.getByTestId('final-answer')).toContainText('当前状态 open')
+  await expect(page.getByTestId('final-answer')).toContainText(
+    'PR 合并不等于部署或验收',
+  )
+  await page
+    .getByRole('button', { name: '查看依据', exact: true })
+    .first()
+    .click()
+  await expect(page.getByRole('dialog')).toContainText('GitHub')
+  await expect(
+    page.getByRole('link', { name: '打开 GitHub 原条目' }),
+  ).toHaveAttribute(
+    'href',
+    /https:\/\/github.com\/demo\/project\/(issues|pull)\/14/,
+  )
+  await page.getByRole('button', { name: '关闭来源' }).click()
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: '下载 Markdown' }).click()
+  const file = await (await download).path()
+  if (!file) throw new Error('Missing export')
+  expect(await readFile(file, 'utf8')).toContain('queryCriteria')
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true)
+  await page.screenshot({
+    path: info.outputPath('progress-mobile.png'),
+    fullPage: true,
+  })
+  expect(
+    (
+      await page.request.delete(
+        `/api/v1/connections/github/repositories/${repoId}`,
+        { headers },
+      )
+    ).status(),
+  ).toBe(204)
+  await page.reload()
+  await expect(
+    page.getByText('资料授权已撤销，整段混合结果、草稿与来源暂不可查看。'),
+  ).toBeVisible({ timeout: 10000 })
+  await expect(page.getByTestId('final-answer')).toHaveCount(0)
+})

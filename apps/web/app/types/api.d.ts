@@ -1303,7 +1303,7 @@ export interface components {
              * Tasktype
              * @enum {string}
              */
-            taskType: "qa" | "compare";
+            taskType: "qa" | "compare" | "progress";
             /**
              * Title
              * @default 文档问答
@@ -1328,7 +1328,7 @@ export interface components {
              * Tasktype
              * @enum {string}
              */
-            taskType: "qa" | "compare";
+            taskType: "qa" | "compare" | "progress";
             /**
              * Title
              * @default 文档问答
@@ -1369,7 +1369,7 @@ export interface components {
              * Tasktype
              * @enum {string}
              */
-            taskType: "qa" | "compare";
+            taskType: "qa" | "compare" | "progress";
             /**
              * Title
              * @default 文档问答
@@ -1999,7 +1999,7 @@ export interface components {
              */
             resultVisibility: "visible" | "partially_unavailable" | "withheld";
             /** Result */
-            result: components["schemas"]["QAResult"] | components["schemas"]["CompareResult"] | null;
+            result: components["schemas"]["QAResult"] | components["schemas"]["CompareResult"] | components["schemas"]["ProgressResult"] | null;
             /** Citations */
             citations: {
                 [key: string]: unknown;
@@ -2243,6 +2243,64 @@ export interface components {
             displayName: string;
             /** Expectedrevision */
             expectedRevision: number;
+        };
+        /** ProgressInput */
+        ProgressInput: {
+            /**
+             * Repoid
+             * Format: uuid
+             */
+            repoId: string;
+            /**
+             * Startdate
+             * Format: date
+             */
+            startDate: string;
+            /**
+             * Enddate
+             * Format: date
+             */
+            endDate: string;
+            /** Timezone */
+            timezone: string;
+            /** Knowledgebaseids */
+            knowledgeBaseIds: string[];
+            /** Focus */
+            focus?: string | null;
+            /**
+             * Question
+             * @default 总结进展与风险
+             */
+            question: string;
+        };
+        /** ProgressResult */
+        ProgressResult: {
+            /** Answer */
+            answer: string;
+            /** Claims */
+            claims: components["schemas"]["Claim"][];
+            /** Missinginformation */
+            missingInformation: string[];
+            /** Conflicts */
+            conflicts: components["schemas"]["Claim"][];
+            /** Coverage */
+            coverage: {
+                [key: string]: unknown;
+            };
+            /** Progress */
+            progress: components["schemas"]["Claim"][];
+            /** Blockers */
+            blockers: components["schemas"]["Claim"][];
+            /** Risks */
+            risks: components["schemas"]["Claim"][];
+            /** Toverify */
+            toVerify: components["schemas"]["Claim"][];
+            /** Suggestions */
+            suggestions: components["schemas"]["Claim"][];
+            /** Queryscope */
+            queryScope: {
+                [key: string]: unknown;
+            };
         };
         /** QAInput */
         QAInput: {
@@ -2514,7 +2572,7 @@ export interface components {
              */
             agentId: string;
             /** Input */
-            input: components["schemas"]["QAInput"] | components["schemas"]["CompareInput"];
+            input: components["schemas"]["QAInput"] | components["schemas"]["CompareInput"] | components["schemas"]["ProgressInput"];
             /** Retryofrunid */
             retryOfRunId?: string | null;
         };
@@ -2556,7 +2614,7 @@ export interface components {
              * @default qa
              * @enum {string}
              */
-            taskType: "qa" | "compare";
+            taskType: "qa" | "compare" | "progress";
             /**
              * Status
              * @enum {string}
@@ -2567,7 +2625,7 @@ export interface components {
             /** Inputsummary */
             inputSummary: string;
             /** Input */
-            input: components["schemas"]["QAInput"] | components["schemas"]["CompareInput"];
+            input: components["schemas"]["QAInput"] | components["schemas"]["CompareInput"] | components["schemas"]["ProgressInput"];
             /** Deadlineat */
             deadlineAt: string | null;
             /** Configversion */
@@ -2592,7 +2650,7 @@ export interface components {
             /** Partialmessage */
             partialMessage: string | null;
             /** Result */
-            result: components["schemas"]["QAResult"] | components["schemas"]["CompareResult"] | null;
+            result: components["schemas"]["QAResult"] | components["schemas"]["CompareResult"] | components["schemas"]["ProgressResult"] | null;
             /** Citations */
             citations: {
                 [key: string]: unknown;
@@ -2695,9 +2753,9 @@ export interface components {
             /**
              * Kind
              * @default document
-             * @constant
+             * @enum {string}
              */
-            kind: "document";
+            kind: "document" | "github";
             /**
              * Availability
              * @enum {string}
@@ -2711,21 +2769,20 @@ export interface components {
             locator: {
                 [key: string]: unknown;
             };
-            /**
-             * Documentid
-             * Format: uuid
-             */
-            documentId: string;
-            /**
-             * Attemptid
-             * Format: uuid
-             */
-            attemptId: string;
-            /**
-             * Chunkid
-             * Format: uuid
-             */
-            chunkId: string;
+            /** Documentid */
+            documentId?: string | null;
+            /** Attemptid */
+            attemptId?: string | null;
+            /** Chunkid */
+            chunkId?: string | null;
+            /** Repoid */
+            repoId?: string | null;
+            /** Itemtype */
+            itemType?: string | null;
+            /** Number */
+            number?: number | null;
+            /** Htmlurl */
+            htmlUrl?: string | null;
             /**
              * Observedat
              * Format: date-time
@@ -2820,6 +2877,8 @@ export interface components {
             knowledgeBases: components["schemas"]["TaskKnowledge"][];
             /** Documents */
             documents: components["schemas"]["TaskDocument"][];
+            /** Repositories */
+            repositories?: components["schemas"]["RepositoryView"][];
             /** Limits */
             limits: {
                 [key: string]: number;

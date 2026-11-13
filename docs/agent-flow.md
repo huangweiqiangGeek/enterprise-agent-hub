@@ -1,6 +1,6 @@
 # Agent、检索与只读工具执行设计
 
-> 版本 1.2 · 2026-11-09 · T1 持久问答、SSE 页面及 D10 有限取消恢复已实现；T2 compare-v1 已实现有界双侧检索，真实模型业务评测待验证；T3 按后续任务实施。需求依据：[PRD 三类任务](PRD.md#4-三类核心任务)。通用状态、数值和 API 以 [contracts](contracts.md) 为准；恢复边界见 [D10 记录](D10-取消与进程恢复实施记录.md)。
+> 版本 1.2 · 2026-11-09 · T1 持久问答、SSE 页面及 D10 有限取消恢复已实现；T2 compare-v1 已实现有界双侧检索，真实模型业务评测待验证；T3 progress-v1 已完成工程/受控验证，真实MCP与模型业务语义仍待验。需求依据：[PRD 三类任务](PRD.md#4-三类核心任务)。通用状态、数值和 API 以 [contracts](contracts.md) 为准；恢复边界见 [D10 记录](D10-取消与进程恢复实施记录.md)。
 
 ## 目录导航
 
@@ -185,3 +185,7 @@ Celery 可能重复投递；`acks_late` 不是 exactly-once 承诺。outbox 补�
 内部read_tool入口检查当前成员、Agent版本工具、组织工具、启用连接和精确仓库授权；返回后再查并比对access_revision。搜索由代码固定仓库/类型/日期/page（最多10页、每页20），按UTC更新时间半开区间二次过滤；详情固定get。输出校验github.com URL、仓库路径、类型及编号，正文裁剪披露。此入口尚未接入D14运行预算/步骤，不能单独替代run生命周期授权。
 
 真实GitHub tools/list/call未执行：没有专用凭据；合成JSON-RPC fixture不代表远端实际Schema及输出兼容性。真实Schema指纹、服务端版本与日期检索行为须用probe_github及后续T3验收补录，不能将本地兼容合同当成已观察的生产Schema。
+
+## D14 实施边界
+
+progress-v1复用context → retrieve → generate → publish持久图。context不复用旧答案作为授权；retrieve先检索计划，再分别完成两类必需查询并保存可重放step/source；可选详情有界且仍占工具次数。publish重新校验当前授权、引用和取消/预算后原子提交。Issue/PR状态与时间事实由确定性代码生成；模型只补推断/建议/未知。具体样本上限和覆盖字段以[contracts](contracts.md#d14-实施口径)为准，证据见[D14记录](D14-进展与风险实施记录.md)。

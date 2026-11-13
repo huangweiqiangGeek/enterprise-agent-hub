@@ -81,9 +81,14 @@ class RunSource(IdentityRow, Base):
     organization_id: Mapped[UUID]
     run_id: Mapped[UUID]
     identity_key: Mapped[str] = mapped_column(Text)
-    document_id: Mapped[UUID]
-    attempt_id: Mapped[UUID]
-    chunk_id: Mapped[UUID]
+    document_id: Mapped[UUID | None]
+    attempt_id: Mapped[UUID | None]
+    chunk_id: Mapped[UUID | None]
+    source_kind: Mapped[str] = mapped_column(Text, default="document")
+    repository_id: Mapped[UUID | None]
+    external_type: Mapped[str | None] = mapped_column(Text)
+    external_number: Mapped[int | None]
+    external_url: Mapped[str | None] = mapped_column(Text)
     title: Mapped[str] = mapped_column(Text)
     excerpt: Mapped[str | None] = mapped_column(Text)
     content_hash: Mapped[str] = mapped_column(Text)

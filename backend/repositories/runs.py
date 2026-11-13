@@ -6,7 +6,8 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.models.agents import Agent, AgentVersion
+from backend.models.agents import Agent, AgentVersion, AgentVersionTool
+from backend.models.github import GitHubConnection, GitHubRepository, OrgToolSetting
 from backend.models.identity import Membership, Organization, now
 from backend.models.knowledge import Document, KnowledgeBase
 from backend.models.model_settings import ModelConnection
@@ -69,6 +70,8 @@ class RunRepository:
         )
         if set(available) != set(ids):
             raise fail("REQUIRED_SOURCE_UNAVAILABLE")
+        if not await self.github_visible(run, strict=True):
+            raise fail("GITHUB_PERMISSION_REVOKED", 403)
         if run.config_snapshot.get("taskType") == "compare":
             expected = run.config_snapshot["documents"]
             documents = list(
@@ -83,6 +86,51 @@ class RunRepository:
             )
             if {str(d.id): str(d.current_attempt_id) for d in documents} != expected:
                 raise fail("REQUIRED_SOURCE_UNAVAILABLE")
+
+    async def github_visible(self, run: Run, *, strict: bool = False) -> bool:
+        info = run.config_snapshot.get("github")
+        if not info:
+            return True
+        connection = await self.db.get(GitHubConnection, UUID(info["connectionId"]))
+        grant = await self.db.get(GitHubRepository, UUID(info["repoId"]))
+        if (
+            not connection
+            or connection.organization_id != self.org
+            or not connection.enabled
+            or not connection.test_result.get("ok")
+            or not grant
+            or grant.organization_id != self.org
+            or not grant.enabled
+        ):
+            return False
+        if grant.connection_id != connection.id or grant.github_repo_id != info["repositoryId"]:
+            return False
+        if strict and connection.revision != info["revision"]:
+            return False
+        disabled = set(
+            await self.db.scalars(
+                select(OrgToolSetting.tool_key).where(
+                    OrgToolSetting.organization_id == self.org, OrgToolSetting.enabled.is_(False)
+                )
+            )
+        )
+        if disabled.intersection(info["toolKeys"]):
+            return False
+        if strict:
+            agent = await self.db.get(Agent, UUID(run.config_snapshot["agentId"]))
+            if not agent:
+                return False
+            current = set(
+                await self.db.scalars(
+                    select(AgentVersionTool.tool_key).where(
+                        AgentVersionTool.organization_id == self.org,
+                        AgentVersionTool.agent_version_id == agent.current_version_id,
+                    )
+                )
+            )
+            if not set(info["toolKeys"]) <= current:
+                return False
+        return True
 
     async def active(self, run: Run, generation: int) -> None:
         if (
@@ -117,7 +165,7 @@ class RunRepository:
                 .where(RunSource.organization_id == self.org, RunSource.run_id == run.id)
             )
         ).all()
-        return all(
+        return await self.github_visible(run) and all(
             not doc.deleted_at
             and doc.status == "ready"
             and doc.current_attempt_id == source.attempt_id

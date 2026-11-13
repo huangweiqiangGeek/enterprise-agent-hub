@@ -6,7 +6,9 @@ import json
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, cast
 
 import httpx
 import uvicorn
@@ -73,7 +75,35 @@ def main() -> None:
         github_spec.loader.exec_module(github_module)
         from backend.services.github_mcp import GitHubMCP
 
-        app.state.github_mcp = GitHubMCP(httpx.MockTransport(github_module.GitHubFixture().handle))
+        github_fixture = github_module.GitHubFixture()
+
+        def github_handle(request: httpx.Request) -> httpx.Response:
+            if request.method == "POST":
+                wire = json.loads(request.content)
+                params = wire.get("params", {})
+                name = params.get("name")
+                if wire.get("method") == "tools/call" and name in {
+                    "search_issues",
+                    "search_pull_requests",
+                }:
+                    kind = "issues" if name == "search_issues" else "pull"
+                    stamp = datetime.now(UTC).isoformat()
+                    github_fixture.items = [
+                        {
+                            "number": 14,
+                            "title": "合成发布跟进样本",
+                            "body": "受控协议样本：补充发布验收记录。",
+                            "state": "open",
+                            "html_url": f"https://github.com/demo/project/{kind}/14",
+                            "created_at": stamp,
+                            "updated_at": stamp,
+                            "closed_at": None,
+                            "merged_at": None,
+                        }
+                    ]
+            return cast(httpx.Response, github_fixture.handle(request))
+
+        app.state.github_mcp = GitHubMCP(httpx.MockTransport(github_handle))
 
     async def handle(request: httpx.Request) -> httpx.Response:
         value = json.loads(request.content)
@@ -90,6 +120,30 @@ def main() -> None:
                     if m["role"] == "user" and '"evidence"' in m["content"]
                 )
             )["evidence"]
+            if any(e.get("kind") == "github" for e in evidence):
+                github_source = next(e["sourceId"] for e in evidence if e.get("kind") == "github")
+                block: dict[str, Any] = {
+                    "type": "risk",
+                    "kind": "inference",
+                    "text": "需核对仓库更新与发布计划的关联。",
+                    "sourceIds": [github_source],
+                }
+                chunk = {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": json.dumps(block, ensure_ascii=False)},
+                            "finish_reason": "stop",
+                        }
+                    ]
+                }
+                return httpx.Response(
+                    200,
+                    content="data: "
+                    + json.dumps(chunk)
+                    + '\n\ndata: {"choices": [], "usage": {"prompt_tokens": 100, '
+                    '"completion_tokens": 100}}\n\ndata: [DONE]\n\n',
+                )
             if any(e.get("role") == "requirement" for e in evidence):
                 block = {
                     "type": "comparison",
@@ -178,6 +232,7 @@ def main() -> None:
                     await QA(
                         RunState(app.state.engine, settings, row.organization_id, row.id),
                         app.state.model_probe,
+                        getattr(app.state, "github_mcp", None),
                     ).run()
                 await asyncio.sleep(0.2)
 

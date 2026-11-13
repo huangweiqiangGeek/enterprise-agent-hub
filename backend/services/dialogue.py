@@ -7,17 +7,20 @@ from uuid import UUID
 from sqlalchemy import func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.github_schemas import RepositoryView
 from backend.models.agents import Agent
+from backend.models.github import GitHubRepository
 from backend.models.identity import Organization, now
 from backend.models.knowledge import Document, KnowledgeBase
 from backend.models.model_settings import OrgSettings
 from backend.models.runs import Conversation, Message, Run, RunCitation, RunEvent, RunSource
-from backend.repositories.runs import TERMINAL, fail
+from backend.repositories.runs import TERMINAL, RunRepository, fail
 from backend.run_schemas import (
     CompareResult,
     ConversationRename,
     ConversationSummary,
     MessageView,
+    ProgressResult,
     RunStatus,
     SourceDetail,
     TaskDocument,
@@ -127,7 +130,7 @@ class DialogueService(RunService):
             await db.execute(
                 select(RunCitation, RunSource, Document)
                 .join(RunSource, RunSource.id == RunCitation.source_id)
-                .join(Document, Document.id == RunSource.document_id)
+                .outerjoin(Document, Document.id == RunSource.document_id)
                 .where(RunCitation.run_id == run_id)
                 .order_by(RunCitation.label)
             )
@@ -138,11 +141,14 @@ class DialogueService(RunService):
                 "label": c.label,
                 "claimPath": c.claim_path,
                 "title": s.title,
-                "documentId": str(s.document_id),
-                "attemptId": str(s.attempt_id),
-                "chunkId": str(s.chunk_id),
+                "kind": s.source_kind,
+                "repoId": str(s.repository_id) if s.repository_id else None,
+                "htmlUrl": s.external_url,
+                "documentId": str(s.document_id) if s.document_id else None,
+                "attemptId": str(s.attempt_id) if s.attempt_id else None,
+                "chunkId": str(s.chunk_id) if s.chunk_id else None,
                 "locator": s.locator,
-                "availability": "deleted" if d.deleted_at else "available",
+                "availability": "deleted" if d and d.deleted_at else "available",
             }
             for c, s, d in rows
         ]
@@ -169,20 +175,32 @@ class DialogueService(RunService):
             )
             items = []
             for row in rows[:limit]:
+                run = await identity.db.get(Run, row.run_id)
+                withheld = bool(
+                    row.role == "assistant"
+                    and run
+                    and not await RunRepository(identity.db, org).github_visible(run)
+                )
                 citations = (
-                    await self.citations(identity.db, row.run_id) if row.role == "assistant" else []
+                    await self.citations(identity.db, row.run_id)
+                    if row.role == "assistant" and not withheld
+                    else []
                 )
                 items.append(
                     MessageView(
                         id=row.id,
                         run_id=row.run_id,
                         role=cast(Any, row.role),
-                        content=row.content,
+                        content="" if withheld else row.content,
                         is_partial=row.is_partial,
-                        result=result_value(row.result_json) if row.result_json else None,
+                        result=result_value(row.result_json)
+                        if row.result_json and not withheld
+                        else None,
                         citations=citations,
                         created_at=row.created_at,
-                        result_visibility="partially_unavailable"
+                        result_visibility="withheld"
+                        if withheld
+                        else "partially_unavailable"
                         if any(c["availability"] == "deleted" for c in citations)
                         else "visible",
                     )
@@ -203,11 +221,13 @@ class DialogueService(RunService):
 
     async def source(self, org: UUID, run_id: UUID, source_id: UUID) -> SourceDetail:
         async with self.user_access(org) as (identity, admin):
-            await self.visible_run(identity, admin, org, run_id)
+            run = await self.visible_run(identity, admin, org, run_id)
+            if not await RunRepository(identity.db, org).github_visible(run):
+                raise fail("GITHUB_PERMISSION_REVOKED", 403)
             row = (
                 await identity.db.execute(
                     select(RunSource, Document)
-                    .join(Document, Document.id == RunSource.document_id)
+                    .outerjoin(Document, Document.id == RunSource.document_id)
                     .where(
                         RunSource.run_id == run_id,
                         RunSource.id == source_id,
@@ -220,9 +240,14 @@ class DialogueService(RunService):
             s, document = row
             return SourceDetail(
                 id=s.id,
+                kind=s.source_kind,
+                repo_id=s.repository_id,
+                item_type=s.external_type,
+                number=s.external_number,
+                html_url=s.external_url,
                 title=s.title,
-                availability="deleted" if document.deleted_at else "available",
-                excerpt=None if document.deleted_at else s.excerpt,
+                availability="deleted" if document and document.deleted_at else "available",
+                excerpt=None if document and document.deleted_at else s.excerpt,
                 locator=s.locator,
                 document_id=s.document_id,
                 attempt_id=s.attempt_id,
@@ -262,7 +287,24 @@ class DialogueService(RunService):
                 k: min(v, settings.limits.get(k, v)) if settings else v
                 for k, v in self.settings.system_limits.model_dump().items()
             }
+            repositories = (
+                list(
+                    await identity.db.scalars(
+                        select(GitHubRepository)
+                        .where(
+                            GitHubRepository.organization_id == org,
+                            GitHubRepository.enabled.is_(True),
+                        )
+                        .order_by(GitHubRepository.owner, GitHubRepository.repo)
+                    )
+                )
+                if config["taskType"] == "progress"
+                else []
+            )
             return TaskOptions(
+                repositories=[
+                    RepositoryView.model_validate(r, from_attributes=True) for r in repositories
+                ],
                 agent_id=agent_id,
                 version_number=config["versionNumber"],
                 limits=limits,
@@ -298,6 +340,8 @@ class DialogueService(RunService):
     ) -> tuple[list[dict[str, Any]], bool]:
         async with self.user_access(org) as (identity, admin):
             run = await self.visible_run(identity, admin, org, run_id)
+            if not await RunRepository(identity.db, org).github_visible(run):
+                raise fail("GITHUB_PERMISSION_REVOKED", 403)
             if cursor > run.last_seq:
                 raise fail("EVENT_CURSOR_INVALID", 422)
             first = await identity.db.scalar(
@@ -332,6 +376,8 @@ class DialogueService(RunService):
     async def export(self, org: UUID, run_id: UUID) -> str:
         async with self.user_access(org) as (identity, admin):
             run = await self.visible_run(identity, admin, org, run_id)
+            if not await RunRepository(identity.db, org).github_visible(run):
+                raise fail("GITHUB_PERMISSION_REVOKED", 403)
             message = await identity.db.scalar(
                 select(Message).where(Message.run_id == run_id, Message.role == "assistant")
             )
@@ -340,7 +386,11 @@ class DialogueService(RunService):
             result = result_value(message.result_json)
             citations = await self.citations(identity.db, run_id)
             lines = [
-                "# 需求与方案对比" if isinstance(result, CompareResult) else "# 文档问答",
+                "# 进展与风险"
+                if isinstance(result, ProgressResult)
+                else "# 需求与方案对比"
+                if isinstance(result, CompareResult)
+                else "# 文档问答",
                 f"生成时间：{run.finished_at.isoformat() if run.finished_at else ''}（UTC）",
                 f"运行：{run.id}",
                 "## 问题",
@@ -351,6 +401,28 @@ class DialogueService(RunService):
             ]
             for doc, attempt in run.config_snapshot["documents"].items():
                 lines.append(f"- 文档 {doc} / 处理版本 {attempt}")
+            if isinstance(result, ProgressResult):
+                lines += [
+                    "## 查询范围",
+                    safe_markdown(json.dumps(result.query_scope, ensure_ascii=False)),
+                ]
+                for field, title in (
+                    ("progress", "进展事实"),
+                    ("blockers", "阻塞推断"),
+                    ("risks", "风险推断"),
+                    ("to_verify", "待核实"),
+                    ("suggestions", "建议"),
+                ):
+                    lines += ["## " + title]
+                    for claim in getattr(result, field):
+                        labels = " ".join(
+                            f"[{c['label']}]"
+                            for c in citations
+                            if c["sourceId"] in {str(i) for i in claim.source_ids}
+                        )
+                        lines.append(
+                            safe_markdown(claim.text) + " " + labels + "（" + claim.kind + "）"
+                        )
             if isinstance(result, CompareResult):
                 lines += ["## 逐项对比"]
                 for index, item in enumerate(result.items):
@@ -384,6 +456,16 @@ class DialogueService(RunService):
                 "## 来源",
             ]
             for c in citations:
+                if c.get("kind") == "github":
+                    lines.append(
+                        f"[{c['label']}] GitHub "
+                        + safe_markdown(c["title"])
+                        + " / "
+                        + str(c["htmlUrl"])
+                        + " / "
+                        + safe_markdown(json.dumps(c["locator"], ensure_ascii=False))
+                    )
+                    continue
                 lines.append(
                     f"[{c['label']}] {safe_markdown(c['title'])} / 文档 {c['documentId']}"
                     f" / 版本 {c['attemptId']} / 片段 {c['chunkId']}"

@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 
 from backend.knowledge_schemas import AcceptanceDTO
 from backend.models.agents import Agent
+from backend.models.github import GitHubConnection, GitHubRepository
 from backend.models.identity import IdempotencyKey, now
 from backend.models.knowledge import Document, OutboxJob
 from backend.models.model_settings import OrgSettings, UsageEntry
@@ -20,6 +21,7 @@ from backend.run_schemas import (
     CompareInput,
     ConversationCreate,
     ConversationView,
+    ProgressInput,
     QAInput,
     RunAccepted,
     RunCreate,
@@ -92,7 +94,7 @@ class RunService(AgentService):
         config = await self.config(repo, agent)
         if not agent.enabled or config.readiness:
             raise fail("AGENT_NOT_READY")
-        if agent.task_type not in {"qa", "compare"}:
+        if agent.task_type not in {"qa", "compare", "progress"}:
             raise fail("TASK_NOT_SUPPORTED", 422)
         return agent, config.model_dump(mode="json", by_alias=True)
 
@@ -150,7 +152,10 @@ class RunService(AgentService):
             if value.agent_id != conversation.agent_id:
                 raise fail("AGENT_MISMATCH", 422)
             agent, config = await self.usable_agent(db, org, value.agent_id)
-            if (agent.task_type == "compare") != isinstance(value.input, CompareInput):
+            expected_input = {"qa": QAInput, "compare": CompareInput, "progress": ProgressInput}[
+                agent.task_type
+            ]
+            if not isinstance(value.input, expected_input):
                 raise fail("TASK_TYPE_MISMATCH", 422)
             if agent.task_type != conversation.task_type:
                 raise fail("TASK_TYPE_MISMATCH", 422)
@@ -161,7 +166,7 @@ class RunService(AgentService):
                 ]
                 kb_ids = [UUID(k) for k in config["knowledgeBaseIds"]]
             else:
-                document_ids = value.input.document_ids
+                document_ids = value.input.document_ids if isinstance(value.input, QAInput) else []
                 kb_ids = value.input.knowledge_base_ids
             if not set(map(str, kb_ids)) <= set(config["knowledgeBaseIds"]):
                 raise fail("TOOL_DENIED", 403)
@@ -220,20 +225,51 @@ class RunService(AgentService):
                 "agentVersionId": str(agent.current_version_id),
                 "versionNumber": config["versionNumber"],
                 "prompt": config["prompt"],
-                "graphVersion": "compare-v1" if agent.task_type == "compare" else GRAPH_VERSION,
+                "graphVersion": {"compare": "compare-v1", "progress": "progress-v1"}.get(
+                    agent.task_type, GRAPH_VERSION
+                ),
                 "taskType": agent.task_type,
                 "toolKeys": config["toolKeys"],
                 "toolSchemaVersion": "knowledge.search-v1",
                 "documents": {str(d.id): str(d.current_attempt_id) for d in selected},
                 "knowledgeBaseIds": sorted({str(d.knowledge_base_id) for d in selected}),
             }
+            if isinstance(value.input, ProgressInput):
+                connection = await db.scalar(
+                    select(GitHubConnection).where(
+                        GitHubConnection.organization_id == org, GitHubConnection.enabled.is_(True)
+                    )
+                )
+                grant = await db.scalar(
+                    select(GitHubRepository).where(
+                        GitHubRepository.organization_id == org,
+                        GitHubRepository.id == value.input.repo_id,
+                        GitHubRepository.enabled.is_(True),
+                    )
+                )
+                if not connection or not grant or not connection.test_result.get("ok"):
+                    raise fail("GITHUB_UNAVAILABLE", 403)
+                start, end = value.input.utc_range()
+                config_snapshot["github"] = {
+                    "connectionId": str(connection.id),
+                    "revision": connection.revision,
+                    "schemaFingerprint": connection.test_result["schemaFingerprint"],
+                    "repoId": str(grant.id),
+                    "repositoryId": grant.github_repo_id,
+                    "owner": grant.owner,
+                    "repo": grant.repo,
+                    "start": start.isoformat(),
+                    "end": end.isoformat(),
+                    "timezone": value.input.timezone,
+                    "toolKeys": [key for key in config["toolKeys"] if key.startswith("github.")],
+                }
             for kind in ("chat", "embedding", "rerank"):
                 repo = ModelRepository(db, org)
-                connection = await repo.connection(kind)
-                assert connection
-                profile, version = await repo.versions(connection)
+                model_connection = await repo.connection(kind)
+                assert model_connection
+                profile, version = await repo.versions(model_connection)
                 config_snapshot[kind] = {
-                    "connectionId": str(connection.id),
+                    "connectionId": str(model_connection.id),
                     "profileId": str(profile.id),
                     "connectionVersionId": str(version.id),
                     "modelName": profile.model_name,
@@ -307,12 +343,19 @@ class RunService(AgentService):
                 await db.execute(
                     select(RunCitation, RunSource, Document)
                     .join(RunSource, RunSource.id == RunCitation.source_id)
-                    .join(Document, Document.id == RunSource.document_id)
+                    .outerjoin(Document, Document.id == RunSource.document_id)
                     .where(RunCitation.run_id == run.id)
                     .order_by(RunCitation.label)
                 )
             ).all()
-            missing = any(doc.deleted_at for _, _, doc in citations)
+            missing = any(doc and doc.deleted_at for _, _, doc in citations)
+            withheld = not await RunRepository(db, org).github_visible(run)
+            input_types: dict[str, type[QAInput] | type[CompareInput] | type[ProgressInput]] = {
+                "qa": QAInput,
+                "compare": CompareInput,
+                "progress": ProgressInput,
+            }
+            input_type = input_types[run.config_snapshot.get("taskType", "qa")]
             return RunSnapshot(
                 id=run.id,
                 conversation_id=run.conversation_id,
@@ -320,9 +363,7 @@ class RunService(AgentService):
                 cancel_requested=run.cancel_requested,
                 input_summary=run.input_snapshot["question"],
                 task_type=run.config_snapshot.get("taskType", "qa"),
-                input=(
-                    CompareInput if run.config_snapshot.get("taskType") == "compare" else QAInput
-                ).model_validate(run.input_snapshot),
+                input=input_type.model_validate(run.input_snapshot),
                 deadline_at=run.deadline_at,
                 config_version={
                     k: v for k, v in run.config_snapshot.items() if k not in {"prompt", "documents"}
@@ -332,26 +373,36 @@ class RunService(AgentService):
                 started_at=run.started_at,
                 finished_at=run.finished_at,
                 last_seq=run.last_seq,
-                partial_message=message.content if message and message.is_partial else None,
+                partial_message=message.content
+                if message and message.is_partial and not withheld
+                else None,
                 result=result_value(message.result_json)
-                if message and message.result_json
+                if message and message.result_json and not withheld
                 else None,
                 citations=[
                     {
                         "sourceId": str(s.id),
                         "label": c.label,
                         "claimPath": c.claim_path,
-                        "documentId": str(s.document_id),
-                        "attemptId": str(s.attempt_id),
-                        "chunkId": str(s.chunk_id),
+                        "documentId": str(s.document_id) if s.document_id else None,
+                        "attemptId": str(s.attempt_id) if s.attempt_id else None,
+                        "chunkId": str(s.chunk_id) if s.chunk_id else None,
                         "title": s.title,
                         "locator": s.locator,
-                        "availability": "deleted" if d.deleted_at else "available",
+                        "kind": s.source_kind,
+                        "repoId": str(s.repository_id) if s.repository_id else None,
+                        "htmlUrl": s.external_url,
+                        "availability": "deleted" if d and d.deleted_at else "available",
                     }
                     for c, s, d in citations
+                    if not withheld
                 ],
-                coverage=run.coverage,
-                result_visibility="partially_unavailable" if missing else "visible",
+                coverage={} if withheld else run.coverage,
+                result_visibility="withheld"
+                if withheld
+                else "partially_unavailable"
+                if missing
+                else "visible",
                 error_code=run.error_code,
                 retry_of_run_id=run.retry_of_run_id,
             )
@@ -367,6 +418,7 @@ class RunService(AgentService):
                     .limit(limit + 1)
                 )
             )
+            withheld = not await RunRepository(identity.db, org).github_visible(run)
             items = []
             for row in rows[:limit]:
                 usage = list(
@@ -387,11 +439,11 @@ class RunService(AgentService):
                         duration_ms=int((row.finished_at - row.started_at).total_seconds() * 1000)
                         if row.finished_at
                         else None,
-                        public_input_summary=row.input_summary,
-                        public_output_summary={
-                            k: v for k, v in row.output_summary.items() if not k.startswith("_")
-                        },
-                        source_ids=row.output_summary.get("sourceIds", []),
+                        public_input_summary={} if withheld else row.input_summary,
+                        public_output_summary={}
+                        if withheld
+                        else {k: v for k, v in row.output_summary.items() if not k.startswith("_")},
+                        source_ids=[] if withheld else row.output_summary.get("sourceIds", []),
                         usage=[
                             {
                                 "kind": u.operation_kind,

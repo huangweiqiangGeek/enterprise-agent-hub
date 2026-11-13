@@ -230,7 +230,7 @@ UsageTotals按chat/embedding/rerank分别聚合usage_entries，不从事件累�
 | ConversationSummary | id、title、agentId、agentName、taskType、updatedAt、activeRunId?、lastRunStatus?；组织和 owner 从鉴权确定 |
 | RunCreate | agentId、input、retryOfRunId?；agentId 必须等于会话固定 Agent；retryOf 必须属于本会话且为失败/取消/超时终态；新运行用当前已保存配置 |
 | RunAccepted | runId、conversationId、status、eventsUrl、createdAt；返回前用户消息、run、幂等记录、outbox 已同事务提交 |
-| RunSnapshot | id、conversationId、taskType、status、cancelRequested、inputSummary、input=QAInput、configVersion、budgetSnapshot、createdAt、startedAt?、deadlineAt?、finishedAt?、lastSeq、partialMessage?、result?、citations[]、coverage、resultVisibility、errorCode?、retryOfRunId? |
+| RunSnapshot | id、conversationId、taskType、status、cancelRequested、inputSummary、input=QAInput/CompareInput/ProgressInput、configVersion、budgetSnapshot、createdAt、startedAt?、deadlineAt?、finishedAt?、lastSeq、partialMessage?、result?、citations[]、coverage、resultVisibility、errorCode?、retryOfRunId? |
 | Message | id、runId、role=user/assistant、content、isPartial、resultVisibility、citations[]、createdAt；结果结构化数据在 result，Markdown 由平台受控渲染 |
 | SourceDetail | id、kind=document/github、availability=available/deleted/revoked/unavailable、title、excerpt?、locator?、documentId?、attemptId?、chunkId?、repoId?、itemType?、number?、htmlUrl?、observedAt、contentHash；正文按当前权限再取 |
 | StepSummary | id、logicalStepKey、attempt、kind、name、status、startedAt、finishedAt?、durationMs?、publicInputSummary、publicOutputSummary、sourceIds[]、usage?、errorCode? |
@@ -330,4 +330,10 @@ AP39～AP46已落地。成员AP39仅返回enabled/available，管理员另返回
 
 AP43 RepositoryAdd要求规范owner/repo和shareWithOrganization=true，使用Idempotency-Key；仅精确匹配真实full_name及正整数仓库ID可授权。空搜索/其他仓库返回GITHUB_REPOSITORY_UNVERIFIED，不能当成可读。撤销后原幂等键不会重新授权；新明确添加可恢复同一身份行。更换凭据停用全部旧授权。AP44软撤销，不删除历史身份。AP46只能修改四种GitHub工具，knowledge.search不可关闭。
 
-固定错误包括MCP_AUTH/MCP_SCOPE/MCP_RATE_LIMIT/MCP_REDIRECT/MCP_SCHEMA_CHANGED/MCP_CALL_FAILED/MCP_SCOPE_MISMATCH/MCP_RESULT_INVALID/MCP_RESPONSE_LIMIT/MCP_UNAVAILABLE；不透传提供方错误正文。T3运行及GitHub历史来源全链路投影属于D14/D17，当前无可用progress执行入口。
+固定错误包括MCP_AUTH/MCP_SCOPE/MCP_RATE_LIMIT/MCP_REDIRECT/MCP_SCHEMA_CHANGED/MCP_CALL_FAILED/MCP_SCOPE_MISMATCH/MCP_RESULT_INVALID/MCP_RESPONSE_LIMIT/MCP_UNAVAILABLE；不透传提供方错误正文。D14已实现progress运行与GitHub历史来源投影：撤销仓库/连接/组织GitHub工具后，相关混合结果、草稿、引用和步骤负载整段隐藏，来源/导出/SSE拒绝；真实MCP验收仍未完成。
+
+### D14 实施口径
+
+`progress-v1`分别取得Issue与PR各一页（20条），每类最多4条纳入上下文，正文每项最多600 UTF-8字节；各类型首条正文缺失且详情工具已启用时最多补1次get。按仓库/type/number去重，时间采用UTC半开区间。`pagesFetched=2`只计必需搜索；`observedIssueCount/observedPrCount`为实际已取回且落入窗口的去重样本数，`omittedGitHubCount`披露未纳入正文的数量，`hasMore`不能解释成全量已读。`partial=true`始终披露采样与计划片段边界。`fetchedAt`为最后成功搜索观察时间，`fetchObservations`保留各类观察时间。
+
+事实进展由平台据真实返回的状态及创建/关闭/合并时间确定性生成；模型只补有来源推断、建议与待核实，不接受模型自报fact。该结构限制不代替真实语义评测。查询范围另保留当地起止日、时区及UTC边界。源种类与字段约束见0011_progress及生成OpenAPI。

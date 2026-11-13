@@ -1,0 +1,29 @@
+{
+  "provenance": "Synthetic D14 acceptance fixtures. Not captured GitHub traffic or a real-model semantic evaluation.",
+  "cases": {
+    "progress": {
+      "group": "suggestions",
+      "issue": {"title": "Release review checklist completed", "body": "Review checklist is complete. Deployment and acceptance have not been confirmed.", "state": "closed"},
+      "pr": {"title": "Add release checklist", "body": "Checklist changes merged after review. No deployment evidence is attached.", "state": "closed", "merged_at": "2026-01-02T11:00:00Z"},
+      "modelText": "建议另行核实部署和验收证据，不能仅据合并判断上线。"
+    },
+    "blocker": {
+      "group": "blockers",
+      "issue": {"title": "Release review awaits approval", "body": "Release cannot proceed until the security reviewer approves. Approval is still pending.", "state": "open", "closed_at": null},
+      "pr": {"title": "Release change waiting for review", "body": "Review is pending and this pull request remains open.", "state": "open", "closed_at": null, "merged_at": null},
+      "modelText": "评审等待可能构成发布阻塞，需核实当前审批情况。"
+    },
+    "risk": {
+      "group": "risks",
+      "issue": {"title": "Rollback verification incomplete", "body": "Release review found that rollback verification has no recorded result.", "state": "open", "closed_at": null},
+      "pr": {"title": "Release configuration changed", "body": "Configuration was merged, but rollback test evidence has not been recorded.", "state": "closed", "merged_at": "2026-01-02T11:00:00Z"},
+      "modelText": "缺少回滚验证记录可能增加发布风险，需要补充证据。"
+    },
+    "unknown": {
+      "group": "toVerify",
+      "issue": {"title": "Unscoped work item", "body": "This item has no explicit owner, deadline, or linked release plan.", "state": "open", "closed_at": null},
+      "pr": {"title": "Unlinked refactor", "body": "A refactor is open with no linked issue or milestone and no acceptance evidence.", "state": "open", "closed_at": null, "merged_at": null},
+      "modelText": "负责人、截止时间、计划关联及验收证据不足，不能确认目标进展。"
+    }
+  }
+}

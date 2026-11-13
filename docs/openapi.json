@@ -9308,7 +9308,8 @@
             "type": "string",
             "enum": [
               "qa",
-              "compare"
+              "compare",
+              "progress"
             ],
             "title": "Tasktype"
           },
@@ -9361,7 +9362,8 @@
             "type": "string",
             "enum": [
               "qa",
-              "compare"
+              "compare",
+              "progress"
             ],
             "title": "Tasktype"
           },
@@ -9457,7 +9459,8 @@
             "type": "string",
             "enum": [
               "qa",
-              "compare"
+              "compare",
+              "progress"
             ],
             "title": "Tasktype"
           },
@@ -11142,6 +11145,9 @@
                 "$ref": "#/components/schemas/CompareResult"
               },
               {
+                "$ref": "#/components/schemas/ProgressResult"
+              },
+              {
                 "type": "null"
               }
             ],
@@ -11863,6 +11869,161 @@
         ],
         "title": "ProfileInput"
       },
+      "ProgressInput": {
+        "properties": {
+          "repoId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Repoid"
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date",
+            "title": "Startdate"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date",
+            "title": "Enddate"
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Timezone"
+          },
+          "knowledgeBaseIds": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Knowledgebaseids"
+          },
+          "focus": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Focus"
+          },
+          "question": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Question",
+            "default": "总结进展与风险"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "repoId",
+          "startDate",
+          "endDate",
+          "timezone",
+          "knowledgeBaseIds"
+        ],
+        "title": "ProgressInput"
+      },
+      "ProgressResult": {
+        "properties": {
+          "answer": {
+            "type": "string",
+            "title": "Answer"
+          },
+          "claims": {
+            "items": {
+              "$ref": "#/components/schemas/Claim"
+            },
+            "type": "array",
+            "title": "Claims"
+          },
+          "missingInformation": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missinginformation"
+          },
+          "conflicts": {
+            "items": {
+              "$ref": "#/components/schemas/Claim"
+            },
+            "type": "array",
+            "title": "Conflicts"
+          },
+          "coverage": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Coverage"
+          },
+          "progress": {
+            "items": {
+              "$ref": "#/components/schemas/Claim"
+            },
+            "type": "array",
+            "title": "Progress"
+          },
+          "blockers": {
+            "items": {
+              "$ref": "#/components/schemas/Claim"
+            },
+            "type": "array",
+            "title": "Blockers"
+          },
+          "risks": {
+            "items": {
+              "$ref": "#/components/schemas/Claim"
+            },
+            "type": "array",
+            "title": "Risks"
+          },
+          "toVerify": {
+            "items": {
+              "$ref": "#/components/schemas/Claim"
+            },
+            "type": "array",
+            "title": "Toverify"
+          },
+          "suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/Claim"
+            },
+            "type": "array",
+            "title": "Suggestions"
+          },
+          "queryScope": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Queryscope"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "answer",
+          "claims",
+          "missingInformation",
+          "conflicts",
+          "coverage",
+          "progress",
+          "blockers",
+          "risks",
+          "toVerify",
+          "suggestions",
+          "queryScope"
+        ],
+        "title": "ProgressResult"
+      },
       "QAInput": {
         "properties": {
           "question": {
@@ -12372,6 +12533,9 @@
               },
               {
                 "$ref": "#/components/schemas/CompareInput"
+              },
+              {
+                "$ref": "#/components/schemas/ProgressInput"
               }
             ],
             "title": "Input"
@@ -12483,7 +12647,8 @@
             "type": "string",
             "enum": [
               "qa",
-              "compare"
+              "compare",
+              "progress"
             ],
             "title": "Tasktype",
             "default": "qa"
@@ -12515,6 +12680,9 @@
               },
               {
                 "$ref": "#/components/schemas/CompareInput"
+              },
+              {
+                "$ref": "#/components/schemas/ProgressInput"
               }
             ],
             "title": "Input"
@@ -12594,6 +12762,9 @@
               },
               {
                 "$ref": "#/components/schemas/CompareResult"
+              },
+              {
+                "$ref": "#/components/schemas/ProgressResult"
               },
               {
                 "type": "null"
@@ -12869,7 +13040,10 @@
           },
           "kind": {
             "type": "string",
-            "const": "document",
+            "enum": [
+              "document",
+              "github"
+            ],
             "title": "Kind",
             "default": "document"
           },
@@ -12903,19 +13077,85 @@
             "title": "Locator"
           },
           "documentId": {
-            "type": "string",
-            "format": "uuid",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Documentid"
           },
           "attemptId": {
-            "type": "string",
-            "format": "uuid",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Attemptid"
           },
           "chunkId": {
-            "type": "string",
-            "format": "uuid",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Chunkid"
+          },
+          "repoId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repoid"
+          },
+          "itemType": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Itemtype"
+          },
+          "number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Number"
+          },
+          "htmlUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Htmlurl"
           },
           "observedAt": {
             "type": "string",
@@ -12935,9 +13175,6 @@
           "title",
           "excerpt",
           "locator",
-          "documentId",
-          "attemptId",
-          "chunkId",
           "observedAt",
           "contentHash"
         ],
@@ -13131,6 +13368,13 @@
             },
             "type": "array",
             "title": "Documents"
+          },
+          "repositories": {
+            "items": {
+              "$ref": "#/components/schemas/RepositoryView"
+            },
+            "type": "array",
+            "title": "Repositories"
           },
           "limits": {
             "additionalProperties": {
