@@ -50,6 +50,14 @@ export function apiError(error: unknown): ApiError {
         return new ApiError(detail.message, status, code, fields)
       }
     }
+    if (status > 0)
+      return new ApiError(
+        status === 401
+          ? '会话已失效，请重新登录。'
+          : '请求未完成，请重试或联系管理员。',
+        status,
+        status === 401 ? 'UNAUTHENTICATED' : 'REQUEST_FAILED',
+      )
   }
   return new ApiError(
     '连接未完成，请检查网络后重试。提交内容已保留。',

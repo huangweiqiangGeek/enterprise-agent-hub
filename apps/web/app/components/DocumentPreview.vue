@@ -8,6 +8,7 @@ const props = defineProps<{
   canManage: boolean
 }>()
 const { $api } = useNuxtApp()
+const { organization } = useIdentity()
 const text = ref<components['schemas']['TextPage'] | null>(null)
 const chunks = ref<components['schemas']['ChunkPreview'] | null>(null)
 const busy = ref(false),
@@ -15,7 +16,14 @@ const busy = ref(false),
 let controller: AbortController | undefined
 let generation = 0
 watch(
-  () => [props.document.id, props.document.currentAttemptId],
+  () => [
+    props.organizationId,
+    props.document.id,
+    props.document.currentAttemptId,
+    props.canManage,
+    organization.value?.id,
+    organization.value?.accessRevision,
+  ],
   () => {
     generation++
     controller?.abort()
@@ -24,6 +32,7 @@ watch(
     message.value = ''
     busy.value = false
   },
+  { flush: 'sync' },
 )
 onBeforeUnmount(() => {
   generation++
@@ -47,7 +56,11 @@ async function load(kind: 'text' | 'chunks', cursor?: string | null) {
     if ('text' in value) text.value = value
     else chunks.value = value
   } catch (error) {
-    if (current === generation) message.value = apiError(error).message
+    if (current === generation) {
+      text.value = null
+      chunks.value = null
+      message.value = apiError(error).message
+    }
   } finally {
     if (current === generation) busy.value = false
   }

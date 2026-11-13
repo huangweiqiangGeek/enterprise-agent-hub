@@ -116,4 +116,22 @@ test('GitHub explicit grants, secret clearing, removal and readonly tools', asyn
     path: testInfo.outputPath('github-mobile.png'),
     fullPage: true,
   })
+  // Controlled access projection verifies local draft clearing, not real MCP authorization.
+  await page.getByLabel('专用只读凭据').fill('never-send-this-draft')
+  let role = 'member'
+  let revision = 1000
+  await page.route('**/api/v1/organizations/current', async (route) => {
+    const response = await route.fetch()
+    const body = await response.json()
+    body.data.effectiveRole = role
+    body.data.accessRevision = revision
+    await route.fulfill({ response, json: body })
+  })
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect(page.getByLabel('专用只读凭据')).toHaveCount(0)
+  role = 'owner'
+  revision++
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect(page.getByLabel('专用只读凭据')).toBeVisible()
+  await expect(page.getByLabel('专用只读凭据')).toHaveValue('')
 })

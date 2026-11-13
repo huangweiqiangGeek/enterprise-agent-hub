@@ -12,12 +12,24 @@ type Options = {
   headers?: Record<string, string>
 }
 
-export default defineNuxtPlugin(() => {
+export default defineNuxtPlugin((nuxtApp) => {
   const forwardedHeaders = useRequestHeaders(['cookie'])
   const responseCookies = useResponseHeader('set-cookie')
   const cacheControl = useResponseHeader('cache-control')
   if (import.meta.server) cacheControl.value = 'no-store'
   const session = useState<Session | null>('identity', () => null)
+  const organization = useState<
+    components['schemas']['OrganizationDTO'] | null
+  >('organization', () => null)
+  function invalidateSession(error: ApiError) {
+    if (error.status === 401) {
+      cancelAll()
+      session.value = null
+      organization.value = null
+      nuxtApp.runWithContext(() => clearNuxtData())
+    }
+    return error
+  }
   // Each plugin instance belongs to one Nuxt app/SSR request, never another user.
   const controllers = new Set<AbortController>()
   let generation = 0
@@ -75,8 +87,7 @@ export default defineNuxtPlugin(() => {
       if (controller.signal.aborted || started !== generation)
         throw new ApiError('请求已取消。', 0, 'ABORTED')
       const converted = apiError(error)
-      if (converted.status === 401) session.value = null
-      throw converted
+      throw invalidateSession(converted)
     } finally {
       options.signal?.removeEventListener('abort', abort)
       controllers.delete(controller)
@@ -123,7 +134,7 @@ export default defineNuxtPlugin(() => {
       if (!response.ok)
         throw apiError({
           statusCode: response.status,
-          data: await response.json(),
+          data: await response.json().catch(() => null),
         })
       const result = await consume(response)
       if (started !== generation || controller.signal.aborted)
@@ -132,7 +143,7 @@ export default defineNuxtPlugin(() => {
     } catch (error) {
       if (controller.signal.aborted || started !== generation)
         throw new ApiError('请求已取消。', 0, 'ABORTED')
-      throw apiError(error)
+      throw invalidateSession(apiError(error))
     } finally {
       options.signal?.removeEventListener('abort', abort)
       controllers.delete(controller)
@@ -181,7 +192,7 @@ export default defineNuxtPlugin(() => {
           } catch {
             data = null
           }
-          reject(apiError({ statusCode: xhr.status, data }))
+          reject(invalidateSession(apiError({ statusCode: xhr.status, data })))
         }
         xhr.onerror = xhr.ontimeout = () =>
           reject(new ApiError('上传接受结果待核对。', 0, 'NETWORK_ERROR'))

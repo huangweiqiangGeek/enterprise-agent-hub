@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { components } from '../../../types/api'
-definePageMeta({ layout: 'workspace' })
+definePageMeta({ layout: 'workspace', key: (route) => route.path })
 type Connection =
   | components['schemas']['GitHubConnectionView']
   | components['schemas']['GitHubSummary']
@@ -70,6 +70,8 @@ const dirty = computed(() =>
 onBeforeRouteLeave(() => {
   if (
     session.value?.user &&
+    organization.value?.id === orgId &&
+    admin.value &&
     dirty.value &&
     !window.confirm('离开后将丢弃未保存的连接和仓库输入，继续吗？')
   )
@@ -112,6 +114,24 @@ async function save() {
   })
 }
 let pending: { key: string; owner: string; repo: string } | null = null
+watch(
+  () => [
+    organization.value?.id,
+    organization.value?.accessRevision,
+    organization.value?.effectiveRole,
+  ],
+  () => {
+    credential.value = ''
+    owner.value = ''
+    repo.value = ''
+    share.value = false
+    pending = null
+    notice.value = ''
+    name.value = config.value?.name || 'GitHub'
+    enabled.value = config.value?.enabled ?? true
+  },
+  { flush: 'sync' },
+)
 async function add() {
   notice.value = ''
   await run(async () => {

@@ -120,6 +120,20 @@ class Ingestion:
             attempt = await self.fence(db, row, lease)
             attempt.lease_until = now() + timedelta(seconds=LEASE_SECONDS)
 
+    async def ensure_capacity(self, db: AsyncSession, org: UUID, additional: int) -> None:
+        count = await db.scalar(
+            select(func.count())
+            .select_from(DocumentChunk)
+            .join(Document, Document.id == DocumentChunk.document_id)
+            .where(
+                Document.organization_id == org,
+                Document.deleted_at.is_(None),
+                DocumentChunk.text.is_not(None),
+            )
+        )
+        if (count or 0) + additional > self.settings.max_chunks_per_organization:
+            raise IngestError("INGEST_LIMIT_EXCEEDED")
+
     async def publish(
         self,
         lease: Lease,
@@ -132,16 +146,7 @@ class Ingestion:
         async with self.locked(lease.document.organization_id, lease.document.id) as (db, row):
             attempt = await self.fence(db, row, lease)
             assert row is not None
-            count = await db.scalar(
-                select(func.count())
-                .select_from(DocumentChunk)
-                .join(Document, Document.id == DocumentChunk.document_id)
-                .where(
-                    Document.organization_id == row.organization_id, Document.deleted_at.is_(None)
-                )
-            )
-            if (count or 0) + len(chunks) > 50000:
-                raise IngestError("INGEST_LIMIT_EXCEEDED")
+            await self.ensure_capacity(db, row.organization_id, len(chunks))
             if len(chunks) != len(vectors):
                 raise IngestError("MODEL_RESPONSE_INVALID")
             for ordinal, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True)):
@@ -221,6 +226,9 @@ class Ingestion:
         body = await self.storage.get(lease.document.object_key, lease.document.size_bytes)
         parsed = await parser.parse(body, lease.document.content_type)
         chunks = split(parsed)
+        async with self.locked(lease.document.organization_id, lease.document.id) as (db, row):
+            await self.fence(db, row, lease)
+            await self.ensure_capacity(db, lease.document.organization_id, len(chunks))
         vectors: list[list[float]] = []
         for start in range(0, len(chunks), 10):
             vectors.extend(

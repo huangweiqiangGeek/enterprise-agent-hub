@@ -337,3 +337,6 @@ AP43 RepositoryAdd要求规范owner/repo和shareWithOrganization=true，使用Id
 `progress-v1`分别取得Issue与PR各一页（20条），每类最多4条纳入上下文，正文每项最多600 UTF-8字节；各类型首条正文缺失且详情工具已启用时最多补1次get。按仓库/type/number去重，时间采用UTC半开区间。`pagesFetched=2`只计必需搜索；`observedIssueCount/observedPrCount`为实际已取回且落入窗口的去重样本数，`omittedGitHubCount`披露未纳入正文的数量，`hasMore`不能解释成全量已读。`partial=true`始终披露采样与计划片段边界。`fetchedAt`为最后成功搜索观察时间，`fetchObservations`保留各类观察时间。
 
 事实进展由平台据真实返回的状态及创建/关闭/合并时间确定性生成；模型只补有来源推断、建议与待核实，不接受模型自报fact。该结构限制不代替真实语义评测。查询范围另保留当地起止日、时区及UTC边界。源种类与字段约束见0011_progress及生成OpenAPI。
+
+
+D17补充：AP53/AP57 新运行接受在组织锁内检查历史 run 总数；达到部署容量时返回 `409 RUN_LIMIT_REACHED`，同键已接受核对仍返回原运行，不删除历史、不调用模型。部署环境容量 `EAH_MAX_DOCUMENTS_PER_ORGANIZATION`、`EAH_MAX_CHUNKS_PER_ORGANIZATION`、`EAH_MAX_RUNS_PER_ORGANIZATION` 仅可在 1 到上述默认上限之间调低。片段容量在模型调用前预检并在发布事务再次检查；已清空正文的历史墓碑不占有效片段容量。清理实现及维护边界见[D17记录](D17-撤销删除与清理实施记录.md)。

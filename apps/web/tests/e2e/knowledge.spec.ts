@@ -247,3 +247,146 @@ test('cancelled transfer keeps its identity for a user retry', async ({
   expect(keys[0]).toBeTruthy()
   expect(keys[1]).toBe(keys[0])
 })
+
+test('external deletion clears open previews and cancels a late original download', async ({
+  page,
+}) => {
+  test.skip(
+    process.env.EAH_BROWSER_INGESTION !== '1',
+    'Needs isolated ingestion fixture',
+  )
+  await prepare(page)
+  await page.getByLabel('选择文件').setInputFiles({
+    name: '撤销.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('撤销后不应继续显示的正文'),
+  })
+  await expect(page.locator('.document-list .badge')).toHaveText(['已就绪'], {
+    timeout: 15000,
+  })
+  await page.getByRole('button', { name: '查看记录' }).click()
+  await page.getByRole('button', { name: '查看提取文本', exact: true }).click()
+  await expect(page.getByRole('region', { name: '提取文本' })).toContainText(
+    '撤销后不应继续显示的正文',
+  )
+  let release: () => void = () => {}
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let documentId = ''
+  let accepted = false
+  let delivered = false
+  let downloads = 0
+  page.on('download', () => downloads++)
+  await page.route(
+    '**/api/v1/documents/*/content?view=original&*',
+    async (route) => {
+      documentId = new URL(route.request().url()).pathname.split('/')[4] || ''
+      const response = await route.fetch()
+      expect(response.status()).toBe(200)
+      accepted = true
+      await held
+      await route.fulfill({ response }).catch(() => {})
+      delivered = true
+    },
+  )
+  await page.getByRole('button', { name: '下载原文件' }).click()
+  await expect.poll(() => accepted).toBe(true)
+  const org = new URL(page.url()).pathname.split('/')[2] || ''
+  const csrf =
+    (await page.context().cookies()).find((c) => c.name === 'eah_csrf')
+      ?.value || ''
+  const removed = await page.request.delete(`/api/v1/documents/${documentId}`, {
+    headers: {
+      'X-Organization-Id': org,
+      'X-CSRF-Token': csrf,
+      Origin: new URL(page.url()).origin,
+    },
+  })
+  expect(removed.status()).toBe(204)
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect(page.getByRole('region', { name: '提取文本' })).toHaveCount(0)
+  await expect(page.locator('.document-list > li')).toHaveCount(0)
+  release()
+  await expect.poll(() => delivered).toBe(true)
+  await expect(
+    page.getByText('还没有文档。添加文件后，它们会显示在这里。'),
+  ).toBeVisible()
+  expect(downloads).toBe(0)
+  const old = await page.request.get(
+    `/api/v1/documents/${documentId}/content?view=original`,
+    { headers: { 'X-Organization-Id': org } },
+  )
+  expect([404, 410]).toContain(old.status())
+})
+
+test('known download 401 clears an open source immediately without permission polling', async ({
+  page,
+}) => {
+  test.skip(
+    process.env.EAH_BROWSER_INGESTION !== '1',
+    'Needs isolated ingestion fixture',
+  )
+  await prepare(page)
+  await page.getByLabel('选择文件').setInputFiles({
+    name: 'session.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('会话保护正文'),
+  })
+  await expect(page.locator('.document-list .badge')).toHaveText(['已就绪'], {
+    timeout: 15000,
+  })
+  await page.getByRole('button', { name: '查看记录' }).click()
+  await page.getByRole('button', { name: '查看提取文本', exact: true }).click()
+  await expect(page.getByRole('region', { name: '提取文本' })).toContainText(
+    '会话保护正文',
+  )
+  await page.route('**/api/v1/organizations/current', (route) => route.abort())
+  await page.route('**/api/v1/documents/*/content?view=original&*', (route) =>
+    route.fulfill({
+      status: 401,
+      body: '',
+    }),
+  )
+  await page.getByRole('button', { name: '下载原文件' }).click()
+  await expect(page.getByRole('region', { name: '提取文本' })).toHaveCount(0)
+  await expect(
+    page.getByRole('link', { name: '团队成员', exact: true }),
+  ).toHaveCount(0)
+})
+
+test('known preview HTML 401 clears an open source immediately without permission polling', async ({
+  page,
+}) => {
+  test.skip(
+    process.env.EAH_BROWSER_INGESTION !== '1',
+    'Needs isolated ingestion fixture',
+  )
+  await prepare(page)
+  await page.getByLabel('选择文件').setInputFiles({
+    name: 'session.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('会话保护正文'),
+  })
+  await expect(page.locator('.document-list .badge')).toHaveText(['已就绪'], {
+    timeout: 15000,
+  })
+  await page.getByRole('button', { name: '查看记录' }).click()
+  await page.getByRole('button', { name: '查看提取文本', exact: true }).click()
+  await expect(page.getByRole('region', { name: '提取文本' })).toContainText(
+    '会话保护正文',
+  )
+  await page.route('**/api/v1/organizations/current', (route) => route.abort())
+  await page.route('**/api/v1/documents/*/chunks?*', (route) =>
+    route.fulfill({
+      status: 401,
+      body: '<html>Unauthorized</html>',
+      contentType: 'text/html',
+    }),
+  )
+  await page.getByRole('button', { name: '查看切片', exact: true }).click()
+  await expect(page.getByRole('region', { name: '提取文本' })).toHaveCount(0)
+  await expect(
+    page.getByRole('link', { name: '团队成员', exact: true }),
+  ).toHaveCount(0)
+})

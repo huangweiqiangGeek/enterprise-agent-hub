@@ -9,6 +9,7 @@ from backend.config import Settings
 from backend.db import make_engine
 from backend.runtime import run_async
 from backend.services.ingestion import Ingestion
+from backend.services.lifecycle import Lifecycle
 from backend.services.storage import Storage
 from backend.workers.outbox import Outbox
 from backend.workers.runs import reconcile as reconcile_runs
@@ -21,12 +22,19 @@ async def main() -> None:
     worker = Ingestion(engine, settings, storage)
     outbox = Outbox(engine, settings, storage)
     cleanup_at, cursor = 0.0, None
+    maintenance_at, maintenance_cursor = 0.0, None
+    lifecycle = Lifecycle(engine, settings)
     try:
         while True:
             try:
                 await worker.reconcile()
                 await reconcile_runs(engine, settings)
                 await outbox.dispatch()
+                if monotonic() >= maintenance_at:
+                    retention = await lifecycle.sweep(cursor=maintenance_cursor)
+                    maintenance_cursor = retention["nextCursor"]
+                    maintenance_at = monotonic() + (5 if maintenance_cursor else 3600)
+                    print(json.dumps({"maintenance": retention}), flush=True)
                 if monotonic() >= cleanup_at:
                     page = await outbox.clean_orphans(cursor)
                     cursor = page["nextCursor"]

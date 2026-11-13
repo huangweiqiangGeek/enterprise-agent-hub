@@ -305,3 +305,5 @@ Remove-Item Env:EAH_RUN_REAL_BAILIAN
 在对话工作台选择启用的progress Agent，明确一个已授权仓库、起止日期、IANA时区和至少一份就绪计划资料。Issue/PR两类必需查询任一失败则任务失败；成功空样本不解释为零工作。报告区分实际状态/时间与推断/待核实，合并不等于上线或验收。
 
 升级需显式执行 `uv run --locked alembic upgrade head` 到 `0011_progress`，再更新API/Web/worker。本次只验证隔离数据库，主体验库仍为`0008_conversations`，没有部署。真实GitHub MCP及T3模型语义验收未完成，不能以合成协议测试替代。命令、固定资料包和边界见[D14记录](docs/D14-进展与风险实施记录.md)。
+
+D17补齐撤权缓存失效、迟到下载保护、保留期有界清理与历史容量保护，实施与未部署边界见[D17记录](docs/D17-撤销删除与清理实施记录.md)。

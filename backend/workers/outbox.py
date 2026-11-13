@@ -5,7 +5,7 @@ import json
 from datetime import timedelta
 from functools import partial
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from celery import Celery  # type: ignore[import-untyped]
 from sqlalchemy import or_, select
@@ -17,6 +17,7 @@ from backend.models.identity import now
 from backend.models.knowledge import Document, DocumentAttempt, DocumentChunk, OutboxJob
 from backend.models.runs import RunSource
 from backend.runtime import run_async
+from backend.services.lifecycle import active_reference
 from backend.services.storage import Storage
 
 
@@ -33,6 +34,8 @@ class Outbox:
         )
 
     async def dispatch(self, limit: int = 100) -> dict[str, int]:
+        if not 1 <= limit <= 100:
+            raise ValueError("Outbox batch must be between 1 and 100")
         succeeded = failed = 0
         for _ in range(limit):
             token = uuid4()
@@ -59,6 +62,38 @@ class Outbox:
                         Document.organization_id == job.organization_id,
                     )
                 )
+                cleanup = job.job_type in {"document.cleanup", "attempt.cleanup"}
+                attempt = (
+                    await db.get(DocumentAttempt, job.resource_version)
+                    if job.job_type == "attempt.cleanup"
+                    else None
+                )
+                if cleanup and document:
+                    lease = await db.scalar(
+                        select(DocumentAttempt.id)
+                        .where(
+                            DocumentAttempt.organization_id == job.organization_id,
+                            DocumentAttempt.document_id == document.id,
+                            DocumentAttempt.lease_until >= now(),
+                        )
+                        .limit(1)
+                    )
+                    active = await active_reference(
+                        db, job.organization_id, document.id, attempt.id if attempt else None
+                    )
+                    if lease or active:
+                        job.lease_until = job.lease_token = None
+                        job.publish_attempts -= 1
+                        job.available_at = now() + timedelta(seconds=60)
+                        continue
+                attempt_cleanup = bool(
+                    attempt
+                    and attempt.organization_id == job.organization_id
+                    and attempt.document_id == job.resource_id
+                    and attempt.status in {"failed", "cancelled"}
+                    and attempt.finished_at
+                    and attempt.finished_at < now() - timedelta(hours=24)
+                )
                 should_publish = bool(
                     document
                     and not document.deleted_at
@@ -81,6 +116,13 @@ class Outbox:
                     if object_key
                     else []
                 )
+                if job.job_type == "attempt.cleanup":
+                    object_key = None
+                    derived_keys = (
+                        [attempt.extracted_object_key]
+                        if attempt_cleanup and attempt and attempt.extracted_object_key
+                        else []
+                    )
             error = None
             try:
                 if job.job_type == "run.execute":
@@ -106,12 +148,12 @@ class Outbox:
                                 retry=False,
                             )
                         )
-                elif job.job_type == "document.cleanup":
+                elif job.job_type in {"document.cleanup", "attempt.cleanup"}:
                     if object_key:
                         await self.storage.delete(object_key)
-                        for key in derived_keys:
-                            if key:
-                                await self.storage.delete(key)
+                    for key in derived_keys:
+                        if key:
+                            await self.storage.delete(key)
                 else:
                     raise ValueError("Unknown job type")
             except Exception:
@@ -135,6 +177,24 @@ class Outbox:
                 else:
                     current.published_at = now()
                     succeeded += 1
+                if current.job_type == "attempt.cleanup" and attempt_cleanup and not error:
+                    for chunk in await db.scalars(
+                        select(DocumentChunk).where(
+                            DocumentChunk.organization_id == current.organization_id,
+                            DocumentChunk.attempt_id == current.resource_version,
+                        )
+                    ):
+                        chunk.text, chunk.embedding, chunk.lexemes = None, None, ""
+                    for source in await db.scalars(
+                        select(RunSource).where(
+                            RunSource.organization_id == current.organization_id,
+                            RunSource.attempt_id == current.resource_version,
+                        )
+                    ):
+                        source.excerpt = None
+                    cleaned = await db.get(DocumentAttempt, current.resource_version)
+                    if cleaned:
+                        cleaned.extracted_object_key = None
                 if current.job_type == "document.cleanup":
                     row = await db.scalar(
                         select(Document).where(
@@ -210,6 +270,25 @@ class Outbox:
                             DocumentAttempt.extracted_object_key == obj["Key"]
                         )
                     )
+                # A derived object can precede its DB publication. Even unusually long-lived
+                # active leases are protected, not inferred safe solely from object age.
+                parts = obj["Key"][len(self.settings.s3_prefix) :].split("/")
+                if not referenced and len(parts) == 4 and parts[1] == "derived":
+                    try:
+                        org, aid = UUID(parts[0]), UUID(parts[2])
+                    except ValueError:
+                        continue
+                    active_attempt = await db.get(DocumentAttempt, aid)
+                    if (
+                        active_attempt
+                        and active_attempt.organization_id == org
+                        and (
+                            active_attempt.status in {"queued", "processing"}
+                            or active_attempt.lease_until
+                            and active_attempt.lease_until >= now()
+                        )
+                    ):
+                        referenced = active_attempt.id
             if not referenced:
                 await self.storage.delete(obj["Key"])
                 deleted += 1

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { components } from '../../../../types/api'
-import { ApiError, apiError } from '../../../../utils/api-error'
-definePageMeta({ layout: 'workspace' })
+import { ApiError } from '../../../../utils/api-error'
+definePageMeta({ layout: 'workspace', key: (route) => route.path })
 type Doc = components['schemas']['DocumentDTO']
 type KB = components['schemas']['KnowledgeDTO']
 type List = components['schemas']['Page_DocumentDTO_']
@@ -55,6 +55,18 @@ const retryKeys = new Map<string, string>()
 let alive = true,
   polling = false
 let timer: ReturnType<typeof setInterval> | undefined
+let generation = 0
+function invalidate() {
+  generation++
+  detail.value = null
+  searchRevision.value++
+  retryKeys.clear()
+}
+watch(
+  () => [organization.value?.id, organization.value?.accessRevision],
+  invalidate,
+  { flush: 'sync' },
+)
 async function reload() {
   await Promise.all([refresh(), refreshBase(), refreshPolicy()])
 }
@@ -95,10 +107,12 @@ onMounted(() => {
 })
 onUnmounted(() => {
   alive = false
+  invalidate()
   clearInterval(timer)
   window.removeEventListener('focus', poll)
 })
 async function inspect(row: Doc) {
+  const epoch = generation
   await run(async () => {
     const value = await $api.request<components['schemas']['DocumentDetail']>(
       `/documents/${row.id}`,
@@ -106,7 +120,7 @@ async function inspect(row: Doc) {
         organizationId: orgId,
       },
     )
-    if (alive) detail.value = value
+    if (alive && epoch === generation) detail.value = value
   })
 }
 async function retry(row: Doc) {
@@ -125,14 +139,19 @@ async function retry(row: Doc) {
   })
 }
 async function inspectSource(item: components['schemas']['RetrievalItem']) {
+  const epoch = generation
   await run(async () => {
     const value = await $api.request<components['schemas']['DocumentDetail']>(
       `/documents/${item.documentId}`,
       { organizationId: orgId },
     )
-    if (alive && value.document.currentAttemptId === item.attemptId)
+    if (
+      alive &&
+      epoch === generation &&
+      value.document.currentAttemptId === item.attemptId
+    )
       detail.value = value
-    else if (alive) {
+    else if (alive && epoch === generation) {
       searchRevision.value++
       throw new ApiError(
         '文档版本已变化，请重新试查。',
@@ -161,17 +180,14 @@ async function remove(row: Doc) {
 }
 async function download(row: Doc) {
   await run(async () => {
-    const response = await fetch(
-      `/api/v1/documents/${row.id}/content?view=original&attemptId=${row.currentAttemptId}`,
-      { headers: { 'X-Organization-Id': orgId } },
+    const epoch = generation
+    const blob = await $api.read(
+      `/documents/${row.id}/content?view=original&attemptId=${row.currentAttemptId}`,
+      { organizationId: orgId },
+      (response) => response.blob(),
     )
-    if (!response.ok)
-      throw apiError({
-        statusCode: response.status,
-        data: await response.json(),
-      })
-    const blob = await response.blob()
-    if (!alive) return
+    if (!alive || epoch !== generation || organization.value?.id !== orgId)
+      return
     const url = URL.createObjectURL(blob),
       link = document.createElement('a')
     link.href = url

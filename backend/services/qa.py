@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import logging
 from contextlib import suppress
 from time import monotonic
 from typing import Any, TypedDict, cast
@@ -502,7 +503,10 @@ class QA:
             await self.state.terminal(error=exc.code)
         except TimeoutError:
             await self.state.terminal(error="RUN_DEADLINE_EXCEEDED")
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).error(
+                "RUN_INTERRUPTED run_id=%s exception_type=%s", self.state.id, type(exc).__name__
+            )
             await self.state.terminal(error="RUN_INTERRUPTED")
         finally:
             if heartbeat:

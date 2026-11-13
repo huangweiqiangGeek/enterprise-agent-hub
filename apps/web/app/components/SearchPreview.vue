@@ -12,6 +12,7 @@ const emit = defineEmits<{
   inspect: [item: components['schemas']['RetrievalItem']]
 }>()
 const { $api } = useNuxtApp()
+const { organization } = useIdentity()
 const query = ref(''),
   selected = ref(''),
   busy = ref(false),
@@ -32,8 +33,19 @@ function reset() {
   message.value = ''
 }
 watch(
-  () => [props.organizationId, props.knowledgeBaseId, props.revision],
-  reset,
+  () => [
+    props.organizationId,
+    props.knowledgeBaseId,
+    props.revision,
+    organization.value?.id,
+    organization.value?.accessRevision,
+    ready.value.map((d) => `${d.id}:${d.currentAttemptId}`).join(','),
+  ],
+  () => {
+    reset()
+    if (!ready.value.some((d) => d.id === selected.value)) selected.value = ''
+  },
+  { flush: 'sync' },
 )
 watch(selected, reset)
 onBeforeUnmount(reset)

@@ -1,3 +1,4 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from backend.model_schemas import Limits
@@ -35,6 +36,8 @@ class Settings(BaseSettings):
     s3_access_key: str = "test"
     s3_secret_key: str = "test"
     s3_prefix: str = "eah/uploads/"
-    max_documents_per_organization: int = 1000
+    max_documents_per_organization: int = Field(default=1000, ge=1, le=1000)
+    max_chunks_per_organization: int = Field(default=50000, ge=1, le=50000)
+    max_runs_per_organization: int = Field(default=10000, ge=1, le=10000)
     ingestion_queue: str = "eah.ingestion"
     run_queue: str = "eah.runs"

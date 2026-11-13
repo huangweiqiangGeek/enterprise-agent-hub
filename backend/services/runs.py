@@ -32,6 +32,7 @@ from backend.run_schemas import (
 )
 from backend.schemas import Page
 from backend.services.agents import AgentService
+from backend.services.errors import AppError
 from backend.services.identity import IdentityService
 from backend.services.run_state import GRAPH_VERSION, RunState
 
@@ -184,6 +185,15 @@ class RunService(AgentService):
                 )
             ):
                 raise fail("CONVERSATION_BUSY")
+            total_runs = await db.scalar(
+                select(func.count()).select_from(Run).where(Run.organization_id == org)
+            )
+            if (total_runs or 0) >= self.settings.max_runs_per_organization:
+                raise AppError(
+                    409,
+                    "RUN_LIMIT_REACHED",
+                    "组织执行记录容量已达上限，请联系部署管理员核对容量；历史记录不会自动删除。",
+                )
             settings = await db.get(OrgSettings, org)
             limits = {
                 k: min(v, settings.limits.get(k, v)) if settings else v
