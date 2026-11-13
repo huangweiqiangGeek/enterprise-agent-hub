@@ -8339,6 +8339,172 @@
         ],
         "title": "Claim"
       },
+      "CompareInput": {
+        "properties": {
+          "requirementDocumentId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Requirementdocumentid"
+          },
+          "solutionDocumentId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Solutiondocumentid"
+          },
+          "focus": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Focus"
+          },
+          "question": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Question",
+            "default": "对比需求与方案"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "requirementDocumentId",
+          "solutionDocumentId"
+        ],
+        "title": "CompareInput"
+      },
+      "CompareItem": {
+        "properties": {
+          "requirement": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Requirement"
+          },
+          "requirementSourceIds": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Requirementsourceids"
+          },
+          "solutionEvidence": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Solutionevidence"
+          },
+          "solutionSourceIds": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 8,
+            "title": "Solutionsourceids"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "covered",
+              "partial",
+              "not_found",
+              "conflict"
+            ],
+            "title": "Status"
+          },
+          "impact": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Impact"
+          },
+          "suggestion": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Suggestion"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "requirement",
+          "requirementSourceIds",
+          "solutionEvidence",
+          "status",
+          "impact",
+          "suggestion"
+        ],
+        "title": "CompareItem"
+      },
+      "CompareResult": {
+        "properties": {
+          "answer": {
+            "type": "string",
+            "title": "Answer"
+          },
+          "claims": {
+            "items": {
+              "$ref": "#/components/schemas/Claim"
+            },
+            "type": "array",
+            "title": "Claims"
+          },
+          "missingInformation": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missinginformation"
+          },
+          "conflicts": {
+            "items": {
+              "$ref": "#/components/schemas/Claim"
+            },
+            "type": "array",
+            "title": "Conflicts"
+          },
+          "coverage": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Coverage"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CompareItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "answer",
+          "claims",
+          "missingInformation",
+          "conflicts",
+          "coverage",
+          "summary",
+          "items"
+        ],
+        "title": "CompareResult"
+      },
       "ConversationCreate": {
         "properties": {
           "agentId": {
@@ -8348,7 +8514,10 @@
           },
           "taskType": {
             "type": "string",
-            "const": "qa",
+            "enum": [
+              "qa",
+              "compare"
+            ],
             "title": "Tasktype"
           },
           "title": {
@@ -8398,7 +8567,10 @@
           },
           "taskType": {
             "type": "string",
-            "const": "qa",
+            "enum": [
+              "qa",
+              "compare"
+            ],
             "title": "Tasktype"
           },
           "title": {
@@ -8491,7 +8663,10 @@
           },
           "taskType": {
             "type": "string",
-            "const": "qa",
+            "enum": [
+              "qa",
+              "compare"
+            ],
             "title": "Tasktype"
           },
           "title": {
@@ -9863,9 +10038,13 @@
                 "$ref": "#/components/schemas/QAResult"
               },
               {
+                "$ref": "#/components/schemas/CompareResult"
+              },
+              {
                 "type": "null"
               }
-            ]
+            ],
+            "title": "Result"
           },
           "citations": {
             "items": {
@@ -11018,7 +11197,15 @@
             "title": "Agentid"
           },
           "input": {
-            "$ref": "#/components/schemas/QAInput"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QAInput"
+              },
+              {
+                "$ref": "#/components/schemas/CompareInput"
+              }
+            ],
+            "title": "Input"
           },
           "retryOfRunId": {
             "anyOf": [
@@ -11125,7 +11312,10 @@
           },
           "taskType": {
             "type": "string",
-            "const": "qa",
+            "enum": [
+              "qa",
+              "compare"
+            ],
             "title": "Tasktype",
             "default": "qa"
           },
@@ -11150,7 +11340,15 @@
             "title": "Inputsummary"
           },
           "input": {
-            "$ref": "#/components/schemas/QAInput"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QAInput"
+              },
+              {
+                "$ref": "#/components/schemas/CompareInput"
+              }
+            ],
+            "title": "Input"
           },
           "deadlineAt": {
             "anyOf": [
@@ -11226,9 +11424,13 @@
                 "$ref": "#/components/schemas/QAResult"
               },
               {
+                "$ref": "#/components/schemas/CompareResult"
+              },
+              {
                 "type": "null"
               }
-            ]
+            ],
+            "title": "Result"
           },
           "citations": {
             "items": {

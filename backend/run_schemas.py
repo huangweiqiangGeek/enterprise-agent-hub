@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import Field, StringConstraints, field_validator
+from pydantic import Field, StringConstraints, field_validator, model_validator
 
 from backend.schemas import DTO, Name, Revision
 
@@ -12,7 +12,7 @@ RunStatus = Literal["queued", "running", "succeeded", "failed", "cancelled", "ti
 
 class ConversationCreate(DTO):
     agent_id: UUID
-    task_type: Literal["qa"]
+    task_type: Literal["qa", "compare"]
     title: Annotated[
         str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)
     ] = "文档问答"
@@ -49,9 +49,32 @@ class QAInput(DTO):
         return values
 
 
+class CompareInput(DTO):
+    requirement_document_id: UUID
+    solution_document_id: UUID
+    focus: Text | None = None
+    question: Text = "对比需求与方案"
+
+    @model_validator(mode="after")
+    def different(self) -> "CompareInput":
+        if self.requirement_document_id == self.solution_document_id:
+            raise ValueError("Select two different documents")
+        return self
+
+
+class CompareItem(DTO):
+    requirement: Text
+    requirement_source_ids: list[UUID] = Field(min_length=1, max_length=8)
+    solution_evidence: Text
+    solution_source_ids: list[UUID] = Field(default_factory=list, max_length=8)
+    status: Literal["covered", "partial", "not_found", "conflict"]
+    impact: Text
+    suggestion: Text
+
+
 class RunCreate(DTO):
     agent_id: UUID
-    input: QAInput
+    input: QAInput | CompareInput
     retry_of_run_id: UUID | None = None
 
 
@@ -77,8 +100,20 @@ class QAResult(DTO):
     coverage: dict[str, Any]
 
 
+class CompareResult(QAResult):
+    summary: str
+    items: list[CompareItem]
+
+
+def result_value(value: dict[str, Any]) -> QAResult | CompareResult:
+    return (
+        CompareResult.model_validate(value) if "items" in value else QAResult.model_validate(value)
+    )
+
+
 class ResultBlock(DTO):
-    type: Literal["summary", "claim", "conflict", "unknown", "suggestion"]
+    type: Literal["summary", "claim", "conflict", "unknown", "suggestion", "comparison"]
+    item: CompareItem | None = None
     text: Text
     kind: Literal["fact", "inference", "suggestion", "unknown"] = "unknown"
     source_ids: list[UUID] = Field(default_factory=list, max_length=80)
@@ -87,11 +122,11 @@ class ResultBlock(DTO):
 class RunSnapshot(DTO):
     id: UUID
     conversation_id: UUID
-    task_type: Literal["qa"] = "qa"
+    task_type: Literal["qa", "compare"] = "qa"
     status: RunStatus
     cancel_requested: bool
     input_summary: str
-    input: QAInput
+    input: QAInput | CompareInput
     deadline_at: datetime | None
     config_version: dict[str, Any]
     budget_snapshot: dict[str, int]
@@ -100,7 +135,7 @@ class RunSnapshot(DTO):
     finished_at: datetime | None
     last_seq: int
     partial_message: str | None
-    result: QAResult | None
+    result: QAResult | CompareResult | None
     citations: list[dict[str, Any]]
     coverage: dict[str, Any]
     result_visibility: Literal["visible", "partially_unavailable", "withheld"]
@@ -132,7 +167,7 @@ class MessageView(DTO):
     content: str
     is_partial: bool
     result_visibility: Literal["visible", "partially_unavailable", "withheld"]
-    result: QAResult | None
+    result: QAResult | CompareResult | None
     citations: list[dict[str, Any]]
     created_at: datetime
 

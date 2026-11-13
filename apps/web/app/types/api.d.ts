@@ -1129,6 +1129,65 @@ export interface components {
             /** Sourceids */
             sourceIds?: string[];
         };
+        /** CompareInput */
+        CompareInput: {
+            /**
+             * Requirementdocumentid
+             * Format: uuid
+             */
+            requirementDocumentId: string;
+            /**
+             * Solutiondocumentid
+             * Format: uuid
+             */
+            solutionDocumentId: string;
+            /** Focus */
+            focus?: string | null;
+            /**
+             * Question
+             * @default 对比需求与方案
+             */
+            question: string;
+        };
+        /** CompareItem */
+        CompareItem: {
+            /** Requirement */
+            requirement: string;
+            /** Requirementsourceids */
+            requirementSourceIds: string[];
+            /** Solutionevidence */
+            solutionEvidence: string;
+            /** Solutionsourceids */
+            solutionSourceIds?: string[];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "covered" | "partial" | "not_found" | "conflict";
+            /** Impact */
+            impact: string;
+            /** Suggestion */
+            suggestion: string;
+        };
+        /** CompareResult */
+        CompareResult: {
+            /** Answer */
+            answer: string;
+            /** Claims */
+            claims: components["schemas"]["Claim"][];
+            /** Missinginformation */
+            missingInformation: string[];
+            /** Conflicts */
+            conflicts: components["schemas"]["Claim"][];
+            /** Coverage */
+            coverage: {
+                [key: string]: unknown;
+            };
+            /** Summary */
+            summary: string;
+            /** Items */
+            items: components["schemas"]["CompareItem"][];
+        };
         /** ConversationCreate */
         ConversationCreate: {
             /**
@@ -1138,9 +1197,9 @@ export interface components {
             agentId: string;
             /**
              * Tasktype
-             * @constant
+             * @enum {string}
              */
-            taskType: "qa";
+            taskType: "qa" | "compare";
             /**
              * Title
              * @default 文档问答
@@ -1163,9 +1222,9 @@ export interface components {
             agentId: string;
             /**
              * Tasktype
-             * @constant
+             * @enum {string}
              */
-            taskType: "qa";
+            taskType: "qa" | "compare";
             /**
              * Title
              * @default 文档问答
@@ -1204,9 +1263,9 @@ export interface components {
             agentId: string;
             /**
              * Tasktype
-             * @constant
+             * @enum {string}
              */
-            taskType: "qa";
+            taskType: "qa" | "compare";
             /**
              * Title
              * @default 文档问答
@@ -1744,7 +1803,8 @@ export interface components {
              * @enum {string}
              */
             resultVisibility: "visible" | "partially_unavailable" | "withheld";
-            result: components["schemas"]["QAResult"] | null;
+            /** Result */
+            result: components["schemas"]["QAResult"] | components["schemas"]["CompareResult"] | null;
             /** Citations */
             citations: {
                 [key: string]: unknown;
@@ -2225,7 +2285,8 @@ export interface components {
              * Format: uuid
              */
             agentId: string;
-            input: components["schemas"]["QAInput"];
+            /** Input */
+            input: components["schemas"]["QAInput"] | components["schemas"]["CompareInput"];
             /** Retryofrunid */
             retryOfRunId?: string | null;
         };
@@ -2265,9 +2326,9 @@ export interface components {
             /**
              * Tasktype
              * @default qa
-             * @constant
+             * @enum {string}
              */
-            taskType: "qa";
+            taskType: "qa" | "compare";
             /**
              * Status
              * @enum {string}
@@ -2277,7 +2338,8 @@ export interface components {
             cancelRequested: boolean;
             /** Inputsummary */
             inputSummary: string;
-            input: components["schemas"]["QAInput"];
+            /** Input */
+            input: components["schemas"]["QAInput"] | components["schemas"]["CompareInput"];
             /** Deadlineat */
             deadlineAt: string | null;
             /** Configversion */
@@ -2301,7 +2363,8 @@ export interface components {
             lastSeq: number;
             /** Partialmessage */
             partialMessage: string | null;
-            result: components["schemas"]["QAResult"] | null;
+            /** Result */
+            result: components["schemas"]["QAResult"] | components["schemas"]["CompareResult"] | null;
             /** Citations */
             citations: {
                 [key: string]: unknown;

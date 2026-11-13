@@ -52,7 +52,12 @@ class RunRepository:
             )
             if not connection or connection.organization_id != self.org or not connection.enabled:
                 raise fail("PERMISSION_REVOKED", 403)
-        ids = [UUID(value) for value in run.input_snapshot["knowledgeBaseIds"]]
+        ids = [
+            UUID(value)
+            for value in run.config_snapshot.get(
+                "knowledgeBaseIds", run.input_snapshot.get("knowledgeBaseIds", [])
+            )
+        ]
         available = list(
             await self.db.scalars(
                 select(KnowledgeBase.id).where(
@@ -64,6 +69,20 @@ class RunRepository:
         )
         if set(available) != set(ids):
             raise fail("REQUIRED_SOURCE_UNAVAILABLE")
+        if run.config_snapshot.get("taskType") == "compare":
+            expected = run.config_snapshot["documents"]
+            documents = list(
+                await self.db.scalars(
+                    select(Document).where(
+                        Document.organization_id == self.org,
+                        Document.id.in_([UUID(d) for d in expected]),
+                        Document.deleted_at.is_(None),
+                        Document.status == "ready",
+                    )
+                )
+            )
+            if {str(d.id): str(d.current_attempt_id) for d in documents} != expected:
+                raise fail("REQUIRED_SOURCE_UNAVAILABLE")
 
     async def active(self, run: Run, generation: int) -> None:
         if (

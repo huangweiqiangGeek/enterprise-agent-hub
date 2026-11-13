@@ -168,3 +168,10 @@ D11不增加表或迁移。运行列表与统计共用organization/initiator/sta
 迁移顺序：账号/组织及延迟 owner FK → 配置/资料 → Agent/连接 → 会话/运行 → 证据/事件/用量/可靠性表；checkpoint 的适配器 setup 作为单独、幂等的维护步骤。每阶段迁移在空库及上一版数据库上验证；表结构变更明确回填和 rollback 限制。
 
 必须验证：跨组织 FK 被拒；owner 转移/移除竞态；同会话双 run；幂等键同/异输入；删除与发布竞态；旧 lease 写入拒绝；终态唯一；引用同 run 归属；不同 Embedding 维度不混算；清理不影响活动记录。单元 mock 不能替代这些真实 PostgreSQL 集成用例。
+
+
+## D12 compare 会话
+
+迁移 `0009_compare` 扩展 conversations.task_type 检查约束为 qa/compare，不改已有问答数据。回滚到0008时若仍存在compare会话，PostgreSQL约束校验失败并回滚整个迁移，不自动删除会话。应先备份并制定数据保留方案。
+
+compare沿用run/input/config/source/citation/usage表；graphVersion=compare-v1，历史qa-v2继续兼容。config_snapshot保存taskType、两文档处理版本和服务端解析的知识库范围；每次执行/恢复重新校验两份文档当前就绪状态与版本，变化则失败而非混用。

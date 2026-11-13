@@ -588,3 +588,94 @@ test('cancel response loss, offline refresh and explicit linked retry', async ({
     2,
   )
 })
+
+test('compare two ready documents, inspect both sources and export bounded coverage', async ({
+  page,
+}) => {
+  const { org, headers, agent, kb, doc } = await prepare(page)
+  const config = (
+    await (
+      await page.request.get(`/api/v1/agents/${agent}`, { headers })
+    ).json()
+  ).data
+  const created = await page.request.post('/api/v1/agents', {
+    headers: { ...headers, 'Idempotency-Key': randomUUID() },
+    data: {
+      name: '对比助手',
+      taskType: 'compare',
+      prompt: '逐项核对双侧证据。',
+      knowledgeBaseIds: [kb],
+      toolKeys: ['knowledge.search'],
+      chatConnectionId: config.chatConnectionId,
+      enabled: true,
+    },
+  })
+  expect(created.status()).toBe(201)
+  const comparisonAgent = (await created.json()).data.id as string
+  const uploaded = await page.request.post(
+    `/api/v1/knowledge-bases/${kb}/documents`,
+    {
+      headers: { ...headers, 'Idempotency-Key': randomUUID() },
+      multipart: {
+        file: {
+          name: '实施方案.md',
+          mimeType: 'text/markdown',
+          buffer: Buffer.from(
+            '# 实施方案\n\n发布必须经过评审。\n\n发布保留回滚记录。',
+          ),
+        },
+      },
+    },
+  )
+  expect(uploaded.status()).toBe(202)
+  const solution = (await uploaded.json()).data.id as string
+  await expect
+    .poll(
+      async () =>
+        (
+          await (
+            await page.request.get(`/api/v1/documents/${solution}`, { headers })
+          ).json()
+        ).data.document.status,
+      { timeout: 20000 },
+    )
+    .toBe('ready')
+  await page.goto(`/o/${org}/chat?agent=${comparisonAgent}`)
+  await expect(page.getByLabel('需求文档')).toBeVisible()
+  await page.getByLabel('需求文档').selectOption(doc)
+  await page.getByLabel('方案文档').selectOption(solution)
+  await page.getByLabel('问题', { exact: true }).fill('比较发布评审要求')
+  await page.getByRole('button', { name: '发送问题', exact: true }).click()
+  await expect(
+    page.getByRole('heading', { name: '逐项对比', exact: true }),
+  ).toBeVisible({ timeout: 30000 })
+  await expect(page.getByRole('table')).toContainText('已覆盖（本次证据）')
+  await page
+    .getByRole('button', { name: '查看需求来源', exact: true })
+    .first()
+    .click()
+  await expect(page.getByRole('dialog')).toContainText(doc)
+  await page.getByRole('button', { name: '关闭来源' }).click()
+  await page
+    .getByRole('button', { name: '查看方案来源', exact: true })
+    .first()
+    .click()
+  await expect(page.getByRole('dialog')).toContainText(solution)
+  await page.getByRole('button', { name: '关闭来源' }).click()
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: '下载 Markdown' }).click()
+  const file = await (await download).path()
+  expect(file).toBeTruthy()
+  if (file) {
+    const text = await readFile(file, 'utf8')
+    expect(text).toContain('逐项对比')
+    expect(text).toContain('selectedDocuments')
+    expect(text).toContain('未检索到不代表全文没有')
+  }
+  await page.reload()
+  await expect(
+    page.getByRole('heading', { name: '逐项对比', exact: true }),
+  ).toBeVisible()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page.getByLabel('需求文档')).toBeVisible()
+})

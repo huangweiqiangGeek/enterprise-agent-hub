@@ -428,7 +428,9 @@ onBeforeUnmount(() => {
       </form>
       <NuxtLink
         v-if="
-          saved.enabled && saved.taskType === 'qa' && !saved.readiness.length
+          saved.enabled &&
+          ['qa', 'compare'].includes(saved.taskType) &&
+          !saved.readiness.length
         "
         :to="`/o/${organizationId}/chat?agent=${saved.id}`"
         >使用已保存配置开始问答</NuxtLink

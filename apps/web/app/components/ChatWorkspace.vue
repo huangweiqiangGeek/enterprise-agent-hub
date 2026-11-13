@@ -11,6 +11,9 @@ type Pending = {
   question: string
   knowledgeBaseIds: string[]
   documentIds: string[]
+  taskType?: 'qa' | 'compare'
+  requirementDocumentId?: string
+  solutionDocumentId?: string
   retryOfRunId?: string
 }
 const props = defineProps<{ org: string; conversationId: string }>()
@@ -28,7 +31,7 @@ const {
     const [conversations, agents, conversation, messages] = await Promise.all([
       $api.request<S['Page_ConversationSummary_']>('/conversations', opts),
       $api.request<S['Page_AgentSummary_']>(
-        '/agents?taskType=qa&enabled=true&limit=100',
+        '/agents?enabled=true&limit=100',
         opts,
       ),
       props.conversationId
@@ -62,6 +65,23 @@ const agentId = ref(
   initial.value?.conversation?.agentId ||
     (typeof route.query.agent === 'string' ? route.query.agent : ''),
 )
+const taskType = computed(
+  () =>
+    initial.value?.conversation?.taskType ||
+    initial.value?.agents.items.find((a) => a.id === agentId.value)?.taskType ||
+    'qa',
+)
+const requirementDocumentId = ref(''),
+  solutionDocumentId = ref('')
+const validScope = computed(() =>
+  taskType.value === 'compare'
+    ? Boolean(
+        requirementDocumentId.value &&
+        solutionDocumentId.value &&
+        requirementDocumentId.value !== solutionDocumentId.value,
+      )
+    : Boolean(kbIds.value.length),
+)
 const taskOptions = ref<S['TaskOptions'] | null>(null)
 const kbIds = ref<string[]>([]),
   documentIds = ref<string[]>([])
@@ -79,20 +99,38 @@ async function prepareRetry(value: S['RunSnapshot']) {
   const n = epoch
   await chooseAgent()
   if (!current(n) || !taskOptions.value) return
-  question.value = value.input.question
-  kbIds.value = value.input.knowledgeBaseIds.filter((id) =>
+  question.value = value.input.question || ''
+  if ('requirementDocumentId' in value.input) {
+    const comparison = value.input
+    const docs = taskOptions.value.documents
+    requirementDocumentId.value = docs.some(
+      (d) => d.id === comparison.requirementDocumentId,
+    )
+      ? comparison.requirementDocumentId
+      : ''
+    solutionDocumentId.value = docs.some(
+      (d) => d.id === comparison.solutionDocumentId,
+    )
+      ? comparison.solutionDocumentId
+      : ''
+    retryOfRunId.value = value.id
+    message.value = '请核对两份文档和当前版本后创建新重试。'
+    return
+  }
+  const input = value.input
+  kbIds.value = input.knowledgeBaseIds.filter((id) =>
     taskOptions.value?.knowledgeBases.some((k) => k.id === id),
   )
   await nextTick()
-  documentIds.value = (value.input.documentIds || []).filter((id) =>
+  documentIds.value = (input.documentIds || []).filter((id) =>
     visibleDocuments.value.some((d) => d.id === id),
   )
   retryOfRunId.value = value.id
   message.value =
     '已载入原问题与仍可用范围。请核对资料后创建新重试，原运行保持不变。'
   if (
-    kbIds.value.length !== value.input.knowledgeBaseIds.length ||
-    documentIds.value.length !== (value.input.documentIds || []).length
+    kbIds.value.length !== input.knowledgeBaseIds.length ||
+    documentIds.value.length !== (input.documentIds || []).length
   ) {
     kbIds.value = []
     documentIds.value = []
@@ -115,7 +153,10 @@ const history = computed(() => [...messages.value].reverse())
 const usable = computed(
   () =>
     initial.value?.agents.items.filter(
-      (a) => a.enabled && !a.readiness.length,
+      (a) =>
+        ['qa', 'compare'].includes(a.taskType) &&
+        a.enabled &&
+        !a.readiness.length,
     ) || [],
 )
 function current(n: number) {
@@ -127,6 +168,8 @@ async function chooseAgent() {
   taskOptions.value = null
   kbIds.value = []
   documentIds.value = []
+  requirementDocumentId.value = ''
+  solutionDocumentId.value = ''
   if (!id) return
   loadingOptions.value = true
   try {
@@ -241,7 +284,7 @@ async function submit() {
     activeRun.value ||
     pending.value ||
     !question.value.trim() ||
-    !kbIds.value.length
+    !validScope.value
   )
     return
   try {
@@ -253,6 +296,9 @@ async function submit() {
       question: question.value.trim(),
       knowledgeBaseIds: [...kbIds.value],
       documentIds: [...documentIds.value],
+      taskType: taskType.value === 'compare' ? 'compare' : 'qa',
+      requirementDocumentId: requirementDocumentId.value,
+      solutionDocumentId: solutionDocumentId.value,
       retryOfRunId: retryOfRunId.value,
     })
     await reconcile()
@@ -281,7 +327,7 @@ async function reconcile() {
           key: request.conversationKey,
           body: {
             agentId: request.agentId,
-            taskType: 'qa',
+            taskType: request.taskType || 'qa',
             title: request.question.slice(0, 100),
           },
         }))
@@ -304,11 +350,19 @@ async function reconcile() {
           key: request.runKey,
           body: {
             agentId: request.agentId,
-            input: {
-              question: request.question,
-              knowledgeBaseIds: request.knowledgeBaseIds,
-              documentIds: request.documentIds,
-            },
+            input:
+              request.taskType === 'compare'
+                ? {
+                    requirementDocumentId: request.requirementDocumentId,
+                    solutionDocumentId: request.solutionDocumentId,
+                    question: request.question,
+                    focus: request.question,
+                  }
+                : {
+                    question: request.question,
+                    knowledgeBaseIds: request.knowledgeBaseIds,
+                    documentIds: request.documentIds,
+                  },
             retryOfRunId: request.retryOfRunId,
           },
         },
@@ -406,6 +460,15 @@ onMounted(() => {
         question: raw.question,
         knowledgeBaseIds: raw.knowledgeBaseIds,
         documentIds: raw.documentIds,
+        taskType: raw.taskType === 'compare' ? 'compare' : 'qa',
+        requirementDocumentId:
+          typeof raw.requirementDocumentId === 'string'
+            ? raw.requirementDocumentId
+            : undefined,
+        solutionDocumentId:
+          typeof raw.solutionDocumentId === 'string'
+            ? raw.solutionDocumentId
+            : undefined,
         retryOfRunId:
           typeof raw.retryOfRunId === 'string' ? raw.retryOfRunId : undefined,
       }
@@ -429,7 +492,9 @@ onUnmounted(() => {
 <template>
   <div>
     <h1>对话工作台</h1>
-    <p class="muted">基于已授权文档问答，保留每轮证据与运行记录。</p>
+    <p class="muted">
+      基于已授权文档问答与双文档对比，保留每轮证据与运行记录。
+    </p>
     <p v-if="initialError" class="error" role="alert">
       {{ apiError(initialError).message }}
     </p>
@@ -495,7 +560,15 @@ onUnmounted(() => {
           @retry="prepareRetry"
         />
         <form class="panel" @submit.prevent="submit">
-          <h2>{{ conversationId ? '继续追问' : '开始文档问答' }}</h2>
+          <h2>
+            {{
+              conversationId
+                ? '继续追问'
+                : taskType === 'compare'
+                  ? '开始需求与方案对比'
+                  : '开始文档问答'
+            }}
+          </h2>
           <p v-if="retryOfRunId" class="notice">
             将创建关联
             {{ retryOfRunId }} 的新运行，使用当前已保存配置，重新计算预算。
@@ -508,12 +581,14 @@ onUnmounted(() => {
             </button>
           </p>
           <label
-            >任务类型<select disabled>
-              <option>文档问答</option>
+            >任务类型<select :value="taskType" disabled>
+              <option value="qa">文档问答</option>
+              <option value="compare">需求与方案对比</option>
             </select></label
           >
           <p class="small muted">
-            需求对比、项目进展尚未开放。更换 Agent 或任务类型请新建会话。
+            选择对应类型的 Agent 开始任务，项目进展尚未开放。更换 Agent
+            或任务类型请新建会话。
           </p>
           <label
             >Agent<select
@@ -540,7 +615,7 @@ onUnmounted(() => {
             </select></label
           >
           <p v-if="!usable.length">
-            暂无可运行的问答 Agent，请管理员配置模型、资料并启用 Agent。
+            暂无可运行的 Agent，请管理员配置模型、资料并启用 Agent。
           </p>
           <p v-if="loadingOptions">正在核对可用资料…</p>
           <template v-if="taskOptions"
@@ -549,7 +624,10 @@ onUnmounted(() => {
               {{ taskOptions.versionNumber }}
               版；提交时以最新保存配置和当前权限为准。
             </p>
-            <fieldset :disabled="busy || Boolean(pending)">
+            <fieldset
+              v-if="taskType === 'qa'"
+              :disabled="busy || Boolean(pending)"
+            >
               <legend>知识范围（追问请明确选择）</legend>
               <label
                 v-for="kb in taskOptions.knowledgeBases"
@@ -560,7 +638,7 @@ onUnmounted(() => {
                 }}</label
               >
             </fieldset>
-            <details>
+            <details v-if="taskType === 'qa'">
               <summary>限定文档（未选时使用所选库中所有就绪文档）</summary>
               <label
                 v-for="doc in visibleDocuments"
@@ -574,6 +652,40 @@ onUnmounted(() => {
                 />{{ doc.title }} · 处理版本 {{ doc.attemptId }}</label
               >
             </details>
+            <fieldset
+              v-if="taskType === 'compare'"
+              :disabled="busy || Boolean(pending)"
+            >
+              <legend>选择两份不同的就绪文档</legend>
+              <label
+                >需求文档<select v-model="requirementDocumentId" required>
+                  <option value="">请选择需求文档</option>
+                  <option
+                    v-for="doc in taskOptions.documents"
+                    :key="doc.id"
+                    :value="doc.id"
+                  >
+                    {{ doc.title }} · {{ doc.attemptId }}
+                  </option>
+                </select></label
+              >
+              <label
+                >方案文档<select v-model="solutionDocumentId" required>
+                  <option value="">请选择方案文档</option>
+                  <option
+                    v-for="doc in taskOptions.documents"
+                    :key="doc.id"
+                    :value="doc.id"
+                    :disabled="doc.id === requirementDocumentId"
+                  >
+                    {{ doc.title }} · {{ doc.attemptId }}
+                  </option>
+                </select></label
+              >
+              <p>
+                双侧分别检索，仅对本次取回的片段作比较；未检索到不代表全文没有，不能据此认定完全满足。
+              </p>
+            </fieldset>
             <p class="small muted">
               最多 {{ taskOptions.limits.max_run_steps }} 步 /
               {{ taskOptions.limits.max_tool_attempts }} 次工具尝试 /
@@ -608,7 +720,7 @@ onUnmounted(() => {
               busy ||
               Boolean(activeRun) ||
               !taskOptions ||
-              !kbIds.length ||
+              !validScope ||
               !question.trim()
             "
           >

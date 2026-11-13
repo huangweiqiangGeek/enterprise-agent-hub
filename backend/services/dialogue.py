@@ -14,15 +14,16 @@ from backend.models.model_settings import OrgSettings
 from backend.models.runs import Conversation, Message, Run, RunCitation, RunEvent, RunSource
 from backend.repositories.runs import TERMINAL, fail
 from backend.run_schemas import (
+    CompareResult,
     ConversationRename,
     ConversationSummary,
     MessageView,
-    QAResult,
     RunStatus,
     SourceDetail,
     TaskDocument,
     TaskKnowledge,
     TaskOptions,
+    result_value,
 )
 from backend.schemas import Page
 from backend.services.identity import IdentityService, PageCursor
@@ -59,7 +60,7 @@ class DialogueService(RunService):
         return ConversationSummary(
             id=row.id,
             agent_id=row.agent_id,
-            task_type="qa",
+            task_type=cast(Any, row.task_type),
             title=row.title,
             updated_at=row.updated_at,
             revision=row.revision,
@@ -178,9 +179,7 @@ class DialogueService(RunService):
                         role=cast(Any, row.role),
                         content=row.content,
                         is_partial=row.is_partial,
-                        result=QAResult.model_validate(row.result_json)
-                        if row.result_json
-                        else None,
+                        result=result_value(row.result_json) if row.result_json else None,
                         citations=citations,
                         created_at=row.created_at,
                         result_visibility="partially_unavailable"
@@ -338,20 +337,40 @@ class DialogueService(RunService):
             )
             if run.status != "succeeded" or not message or not message.result_json:
                 raise fail("EXPORT_NOT_AVAILABLE")
-            result = QAResult.model_validate(message.result_json)
+            result = result_value(message.result_json)
             citations = await self.citations(identity.db, run_id)
             lines = [
-                "# 文档问答",
+                "# 需求与方案对比" if isinstance(result, CompareResult) else "# 文档问答",
                 f"生成时间：{run.finished_at.isoformat() if run.finished_at else ''}（UTC）",
                 f"运行：{run.id}",
                 "## 问题",
                 safe_markdown(run.input_snapshot["question"]),
                 "## 范围",
                 f"Agent 版本：{run.config_snapshot['versionNumber']}",
-                "知识库：" + ", ".join(run.input_snapshot["knowledgeBaseIds"]),
+                "知识库：" + ", ".join(run.input_snapshot.get("knowledgeBaseIds", [])),
             ]
             for doc, attempt in run.config_snapshot["documents"].items():
                 lines.append(f"- 文档 {doc} / 处理版本 {attempt}")
+            if isinstance(result, CompareResult):
+                lines += ["## 逐项对比"]
+                for index, item in enumerate(result.items):
+                    lines += [
+                        f"### {index + 1}. {safe_markdown(item.requirement)}",
+                        "状态：" + item.status,
+                        "方案证据：" + safe_markdown(item.solution_evidence),
+                        "影响：" + safe_markdown(item.impact),
+                        "建议：" + safe_markdown(item.suggestion),
+                    ]
+                    for side in ("requirement_source_ids", "solution_source_ids"):
+                        labels = " ".join(
+                            f"[{c['label']}]"
+                            for c in citations
+                            if c["sourceId"] in {str(v) for v in getattr(item, side)}
+                        )
+                        lines.append(
+                            ("需求来源：" if side.startswith("requirement") else "方案来源：")
+                            + (labels or "本次未检索到")
+                        )
             lines += ["## 答案", safe_markdown(result.answer), "## 证据对应"]
             for group in ("claims", "conflicts"):
                 for index, claim in enumerate(getattr(result, group)):

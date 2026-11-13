@@ -1,0 +1,26 @@
+[
+  {
+    "status": "covered",
+    "requirement": "发布前必须完成评审和测试。",
+    "solution": "方案规定先完成评审和测试，再发布。",
+    "evidence": "方案覆盖发布前的评审与测试。"
+  },
+  {
+    "status": "partial",
+    "requirement": "发布前必须完成评审和测试。",
+    "solution": "方案只说明发布前必须完成评审。",
+    "evidence": "方案明确评审，测试要求待补充证据。"
+  },
+  {
+    "status": "not_found",
+    "requirement": "发布前必须完成评审和测试。",
+    "solution": "方案说明日志保留三十天。",
+    "evidence": "本次未检索到对应评审与测试证据。"
+  },
+  {
+    "status": "conflict",
+    "requirement": "发布前必须完成评审和测试。",
+    "solution": "方案明确无需评审即可发布。",
+    "evidence": "无需评审与需求必须评审存在冲突。"
+  }
+]

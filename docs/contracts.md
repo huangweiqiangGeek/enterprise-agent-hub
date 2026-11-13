@@ -313,3 +313,12 @@ run Token 预算覆盖聊天模型的所有输入与输出（包括工具定义�
 聊天调用前按适配器 tokenizer 计算输入并预留 maxOutputTokens（默认 2000，不能超过剩余预算）；提供方必须支持限制输出。D03 实现部署允许的模型/tokenizer 映射与能力测试，不能准确界定预算的模型不得标为可用。OpenAI 使用 tiktoken 映射；qwen-plus 使用官方 SDK 内置词表，标识 `dashscope-qwen-1.26.7`，profile 固定 `enableThinking=false`。D03 固定短输入探针用请求 UTF-8 字节数加余量保守预留、输出限制 64，百炼发送 `max_tokens` 和 `enable_thinking=false`；通用运行的输入预算计算由后续运行任务落地。调用已发出但 usage 未返回时按预留量保守记账，标为估算；已确认未发出才可释放预留。实际 usage 若超过预留立即停止后续调用并记异常，不能宣称已产生消耗能被追回。失败、取消、重试均保留独立尝试。
 
 清理不替代权限撤销：逻辑删除/移除成员在事务提交后立即由服务端阻断读取；前端可能已合法显示或用户已保存的内容无法远程抹除。历史 run/消息/来源元数据保留，容量保护避免无限增长。实际计时以服务端 UTC 时钟为准，客户端仅展示。
+
+
+## D12 compare 落地补充
+
+ConversationCreate.taskType 支持 qa/compare，并须与固定 Agent 类型一致。RunCreate.input 严格校验 QAInput 或 CompareInput，禁止混合字段；compare 的 question 默认“对比需求与方案”，focus 可选。Agent 绑定范围从服务端计算，调用者不另传 knowledgeBaseIds。历史快照按 taskType 返回对应输入。
+
+CompareResult 保留统一展示所需 answer/claims/conflicts/missingInformation/coverage，额外提供 summary/items。items 使用上表约定的双侧 sourceIds；covered/partial/conflict 必须双侧有本轮证据，not_found 的方案来源为空，文本固定说明仅为本次检索缺证。claims 是供现有引用和导出消费者使用的逐项证据投影，不是第二套模型结论。
+
+coverage.selectedDocuments 固化两侧 documentId/attemptId；sides 分列检索计数、includedChunkCount、omittedContextCount，chunkIds 为实际纳入的片段。每侧最多4片段/2000 UTF-8字节；始终披露不是全文覆盖。comparisonRole 附于来源 locator，仅标记两侧用途，不取代原文定位。

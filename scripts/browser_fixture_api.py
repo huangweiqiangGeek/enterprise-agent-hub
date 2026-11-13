@@ -78,6 +78,42 @@ def main() -> None:
                     if m["role"] == "user" and '"evidence"' in m["content"]
                 )
             )["evidence"]
+            if any(e.get("role") == "requirement" for e in evidence):
+                block = {
+                    "type": "comparison",
+                    "kind": "fact",
+                    "text": "对比结果",
+                    "sourceIds": [],
+                    "item": {
+                        "requirement": "发布必须经过评审",
+                        "requirementSourceIds": [
+                            e["sourceId"] for e in evidence if e.get("role") == "requirement"
+                        ],
+                        "solutionEvidence": "方案要求评审",
+                        "solutionSourceIds": [
+                            e["sourceId"] for e in evidence if e.get("role") == "solution"
+                        ],
+                        "status": "covered",
+                        "impact": "需核对实施证据",
+                        "suggestion": "建议补充验收记录",
+                    },
+                }
+                chunk = {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": json.dumps(block, ensure_ascii=False)},
+                            "finish_reason": "stop",
+                        }
+                    ]
+                }
+                return httpx.Response(
+                    200,
+                    content="data: "
+                    + json.dumps(chunk)
+                    + '\n\ndata: {"choices": [], "usage": {"prompt_tokens": 100, '
+                    '"completion_tokens": 100}}\n\ndata: [DONE]\n\n',
+                )
             return httpx.Response(
                 200,
                 stream=BrowserQAStream(

@@ -331,6 +331,59 @@ function locator(value: unknown) {
           部分来源已删除，历史答案保留，原文不可用。
         </p>
         <div data-testid="final-answer">
+          <div v-if="'items' in snapshot.result" class="table-scroll">
+            <h3>逐项对比</h3>
+            <p>{{ snapshot.result.summary }}</p>
+            <table>
+              <thead>
+                <tr>
+                  <th>需求与来源</th>
+                  <th>方案证据与来源</th>
+                  <th>状态</th>
+                  <th>影响（待核对）</th>
+                  <th>建议</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(item, index) in snapshot.result.items" :key="index">
+                  <td>
+                    {{ item.requirement
+                    }}<button
+                      v-for="id in item.requirementSourceIds"
+                      :key="id"
+                      class="text-button"
+                      @click="openSource(id)"
+                    >
+                      查看需求来源
+                    </button>
+                  </td>
+                  <td>
+                    {{ item.solutionEvidence
+                    }}<button
+                      v-for="id in item.solutionSourceIds"
+                      :key="id"
+                      class="text-button"
+                      @click="openSource(id)"
+                    >
+                      查看方案来源
+                    </button>
+                  </td>
+                  <td>
+                    {{
+                      {
+                        covered: '已覆盖（本次证据）',
+                        partial: '部分覆盖',
+                        not_found: '本次未检索到',
+                        conflict: '证据冲突',
+                      }[item.status]
+                    }}
+                  </td>
+                  <td>{{ item.impact }}</td>
+                  <td>{{ item.suggestion }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
           <p
             v-if="
               !snapshot.result.claims.length &&

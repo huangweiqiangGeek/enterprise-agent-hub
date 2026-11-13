@@ -17,15 +17,16 @@ from backend.repositories.agents import AgentRepository
 from backend.repositories.model_settings import ModelRepository
 from backend.repositories.runs import TERMINAL, RunRepository, fail
 from backend.run_schemas import (
+    CompareInput,
     ConversationCreate,
     ConversationView,
     QAInput,
-    QAResult,
     RunAccepted,
     RunCreate,
     RunSnapshot,
     RunStatus,
     StepSummary,
+    result_value,
 )
 from backend.schemas import Page
 from backend.services.agents import AgentService
@@ -91,7 +92,7 @@ class RunService(AgentService):
         config = await self.config(repo, agent)
         if not agent.enabled or config.readiness:
             raise fail("AGENT_NOT_READY")
-        if agent.task_type != "qa":
+        if agent.task_type not in {"qa", "compare"}:
             raise fail("TASK_NOT_SUPPORTED", 422)
         return agent, config.model_dump(mode="json", by_alias=True)
 
@@ -103,7 +104,9 @@ class RunService(AgentService):
             replay = await identity.replay(org, "conversation.create", key, payload)
             if replay:
                 return ConversationView.model_validate(replay.response_data)
-            await self.usable_agent(identity.db, org, value.agent_id)
+            agent, _ = await self.usable_agent(identity.db, org, value.agent_id)
+            if agent.task_type != value.task_type:
+                raise fail("TASK_TYPE_MISMATCH", 422)
             row = Conversation(
                 organization_id=org,
                 owner_user_id=identity.require_user().id,
@@ -147,7 +150,20 @@ class RunService(AgentService):
             if value.agent_id != conversation.agent_id:
                 raise fail("AGENT_MISMATCH", 422)
             agent, config = await self.usable_agent(db, org, value.agent_id)
-            if not set(map(str, value.input.knowledge_base_ids)) <= set(config["knowledgeBaseIds"]):
+            if (agent.task_type == "compare") != isinstance(value.input, CompareInput):
+                raise fail("TASK_TYPE_MISMATCH", 422)
+            if agent.task_type != conversation.task_type:
+                raise fail("TASK_TYPE_MISMATCH", 422)
+            if isinstance(value.input, CompareInput):
+                document_ids = [
+                    value.input.requirement_document_id,
+                    value.input.solution_document_id,
+                ]
+                kb_ids = [UUID(k) for k in config["knowledgeBaseIds"]]
+            else:
+                document_ids = value.input.document_ids
+                kb_ids = value.input.knowledge_base_ids
+            if not set(map(str, kb_ids)) <= set(config["knowledgeBaseIds"]):
                 raise fail("TOOL_DENIED", 403)
             if value.retry_of_run_id:
                 prior = await db.get(Run, value.retry_of_run_id)
@@ -188,21 +204,15 @@ class RunService(AgentService):
                 await db.scalars(
                     select(Document).where(
                         Document.organization_id == org,
-                        Document.knowledge_base_id.in_(value.input.knowledge_base_ids),
+                        Document.knowledge_base_id.in_(kb_ids),
                         Document.deleted_at.is_(None),
                         Document.status == "ready",
                     )
                 )
             )
-            if value.input.document_ids and not set(value.input.document_ids) <= {
-                d.id for d in documents
-            }:
+            if document_ids and not set(document_ids) <= {d.id for d in documents}:
                 raise fail("DOCUMENT_NOT_READY")
-            selected = [
-                d
-                for d in documents
-                if not value.input.document_ids or d.id in value.input.document_ids
-            ]
+            selected = [d for d in documents if not document_ids or d.id in document_ids]
             if not selected:
                 raise fail("DOCUMENT_NOT_READY")
             config_snapshot: dict[str, Any] = {
@@ -210,10 +220,12 @@ class RunService(AgentService):
                 "agentVersionId": str(agent.current_version_id),
                 "versionNumber": config["versionNumber"],
                 "prompt": config["prompt"],
-                "graphVersion": GRAPH_VERSION,
+                "graphVersion": "compare-v1" if agent.task_type == "compare" else GRAPH_VERSION,
+                "taskType": agent.task_type,
                 "toolKeys": config["toolKeys"],
                 "toolSchemaVersion": "knowledge.search-v1",
                 "documents": {str(d.id): str(d.current_attempt_id) for d in selected},
+                "knowledgeBaseIds": sorted({str(d.knowledge_base_id) for d in selected}),
             }
             for kind in ("chat", "embedding", "rerank"):
                 repo = ModelRepository(db, org)
@@ -232,7 +244,7 @@ class RunService(AgentService):
                 conversation_id=conversation_id,
                 initiator_id=identity.require_user().id,
                 agent_version_id=agent.current_version_id,
-                graph_version=GRAPH_VERSION,
+                graph_version=config_snapshot["graphVersion"],
                 input_snapshot=value.input.model_dump(mode="json", by_alias=True),
                 config_snapshot=config_snapshot,
                 budget_snapshot=limits,
@@ -307,7 +319,10 @@ class RunService(AgentService):
                 status=cast(RunStatus, run.status),
                 cancel_requested=run.cancel_requested,
                 input_summary=run.input_snapshot["question"],
-                input=QAInput.model_validate(run.input_snapshot),
+                task_type=run.config_snapshot.get("taskType", "qa"),
+                input=(
+                    CompareInput if run.config_snapshot.get("taskType") == "compare" else QAInput
+                ).model_validate(run.input_snapshot),
                 deadline_at=run.deadline_at,
                 config_version={
                     k: v for k, v in run.config_snapshot.items() if k not in {"prompt", "documents"}
@@ -318,7 +333,7 @@ class RunService(AgentService):
                 finished_at=run.finished_at,
                 last_seq=run.last_seq,
                 partial_message=message.content if message and message.is_partial else None,
-                result=QAResult.model_validate(message.result_json)
+                result=result_value(message.result_json)
                 if message and message.result_json
                 else None,
                 citations=[
